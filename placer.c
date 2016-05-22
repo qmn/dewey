@@ -35,15 +35,14 @@ static int max(int a, int b)
  *
  * it returns the method used
  */
-enum placement_method generate(struct cell_placements *placements,
+static enum placement_method generate(struct cell_placements *placements,
 		struct dimensions *dimensions,
 		double t, double t_0,
 		enum placement_method method)
 {
 	unsigned long cell_a_idx, cell_b_idx;
-	struct placement *cell_a, *cell_b, *tmp;
+	struct placement *cell_a, *tmp;
 	double p, interchange_threshold;
-	enum placement_method method_used;
 	double scaling_factor;
 	long window_height, window_width;
 
@@ -96,7 +95,7 @@ static struct cell_placements *copy_placements(struct cell_placements *old_place
 {
 	struct cell_placements *new_placements;
 	struct placement **p, **o;
-	int i, j;
+	int i;
 
 	new_placements = (struct cell_placements *)malloc(sizeof(struct cell_placements));
 
@@ -133,12 +132,23 @@ static int score(struct cell_placements *placements, struct dimensions *dimensio
 
 static int accept(int new_score, int old_score, double t)
 {
-	return 1;
+	double ratio, acceptance_criterion;
+	ratio = (double)(new_score - old_score) / t;
+	if (ratio > 1)
+		return 1;
+
+	acceptance_criterion = fmin(1.0, exp(ratio));
+	return random() < (long)(acceptance_criterion * RAND_MAX);
 }
 
-static double update(double t)
+static double update(double t, double (*alpha)(double))
 {
-	return t - 1.0;
+	return t * alpha(t);
+}
+
+static double fixed_alpha(double t)
+{
+	return 0.9;
 }
 
 /*
@@ -174,20 +184,20 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 				 * accept this new placement, free the old
 				 * placements, and replace it with the new ones
 				 */
-				free(best_placements);
+				free_placements(best_placements);
 				best_placements = new_placements;
 				taken_score = new_score;
 				if (method_used == REORIENT)
 					method = DISPLACE;
 			} else {
 				/* reject the new placement */
-				free(new_placements);
+				free_placements(new_placements);
 				taken_score = old_score;
 				if (method_used == DISPLACE)
 					method = REORIENT;
 			}
 		}
-		t = update(t);
+		t = update(t, fixed_alpha);
 
 		printf("Iteration: %d, Score: %d\n", i, taken_score);
 	}

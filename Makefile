@@ -1,12 +1,13 @@
 default: dewey
 
-CFLAGS=-Wall -pedantic
+CC=gcc-5
+CFLAGS=-Wall -pedantic -std=c99 -g
 
 %.o : %.c
-	gcc -c $(CFLAGS) -o $@ $<
+	$(CC) -c $(CFLAGS) -o $@ $<
 
-dewey: dewey.o placer.o
-	gcc $(CFLAGS) -o $@ $^
+dewey: dewey.o placer.o blif.o
+	$(CC) $(CFLAGS) -o $@ $^
 
 clean:
 	rm -rf *.o

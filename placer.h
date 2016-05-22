@@ -1,5 +1,8 @@
 #ifndef __PLACER_H__
 #define __PLACER_H__
+
+#include "blif.h"
+
 struct coordinate {
 	int y;
 	int z;
@@ -10,11 +13,6 @@ struct dimensions {
 	unsigned int y;
 	unsigned int z;
 	unsigned int x;
-};
-
-struct pin {
-	char *name;
-	char *net;
 };
 
 struct placement {
@@ -29,4 +27,9 @@ struct cell_placements {
 	struct placement **placements;
 	unsigned long length;
 };
+
+struct cell_placements *simulated_annealing_placement(struct cell_placements *,
+		struct dimensions *,
+		double,
+		unsigned int, unsigned int);
 #endif /* __PLACER_H__ */
