@@ -4,6 +4,7 @@
 
 #include "blif.h"
 #include "placer.h"
+#include "cell.h"
 
 int main(int argc, char **argv)
 {
@@ -15,10 +16,10 @@ int main(int argc, char **argv)
 		return 1;
 	}
 
+	/* read input blif */
 	FILE *blif_file;
 	struct blif *blif;
 
-	/* read input blif */
 	blif_file = fopen(argv[1], "r");
 
         if (!blif_file) {
@@ -29,7 +30,22 @@ int main(int argc, char **argv)
 	blif = read_blif(blif_file);
 	fclose(blif_file);
 
+	/* read cell library */
+	FILE *cell_library_file;
+	struct cell_library *cl;
+
+	cell_library_file = fopen("quan.yaml", "rb");
+
+	if (!cell_library_file) {
+		printf("[dewey] could not read cell library file: %s\n", strerror(errno));
+		return 3;
+	}
+
+	cl = read_cell_library(cell_library_file);
+	fclose(cell_library_file);
+
         free_blif(blif);
+	free_cell_library(cl);
 
 	return 0;
 }

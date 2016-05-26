@@ -2,18 +2,7 @@
 #define __PLACER_H__
 
 #include "blif.h"
-
-struct coordinate {
-	int y;
-	int z;
-	int x;
-};
-
-struct dimensions {
-	unsigned int y;
-	unsigned int z;
-	unsigned int x;
-};
+#include "cell.h"
 
 struct placement {
 	char *name;
