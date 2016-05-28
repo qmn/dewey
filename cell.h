@@ -1,8 +1,8 @@
 #ifndef __CELL_H__
 #define __CELL_H__
 
-typedef char block_t;
-typedef char data_t;
+typedef unsigned char block_t;
+typedef unsigned char data_t;
 
 struct coordinate {
 	int y;
@@ -20,6 +20,8 @@ enum pin_direction { INPUT, OUTPUT };
 enum ordinal_direction { NORTH, EAST, SOUTH, WEST };
 
 struct logic_cell_pin {
+	char *name;
+
 	enum pin_direction direction;
 	enum ordinal_direction facing;
 	struct coordinate coordinate;
@@ -34,8 +36,8 @@ struct logic_cell {
 	struct logic_cell_pin **pins;
 
 	struct dimensions dimensions;
-	block_t ***blocks;
-	data_t ***data;
+	block_t *blocks;
+	data_t *data;
 
 	int delay_combinational;
 };
