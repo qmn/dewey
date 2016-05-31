@@ -4,6 +4,70 @@
 
 #include "cell.h"
 
+// #define CELL_LIBRARY_DEBUG
+
+void print_blocks(block_t *blocks, struct dimensions d)
+{
+	int y, z, x;
+	int yoff, zoff;
+
+	for (y = 0; y < d.y; y++) {
+		yoff = y * d.z * d.x;
+		for (z = 0; z < d.z; z++) {
+			zoff = z * d.x;
+			printf("    ");
+			for (x = 0; x < d.x; x++) {
+				printf("%3d ", blocks[yoff + zoff + x]);
+			}
+			printf("\n");
+		}
+		printf("\n");
+	}
+}
+
+void print_data(data_t *data, struct dimensions d)
+{
+	int y, z, x;
+	int yoff, zoff;
+
+	for (y = 0; y < d.y; y++) {
+		yoff = y * d.z * d.x;
+		for (z = 0; z < d.z; z++) {
+			zoff = z * d.x;
+			printf("    ");
+			for (x = 0; x < d.x; x++) {
+				printf("%3d ", data[yoff + zoff + x]);
+			}
+			printf("\n");
+		}
+		printf("\n");
+	}
+}
+
+void print_cell_information(struct logic_cell *lc)
+{
+	printf("logic cell: %s\n", lc->name);
+	struct dimensions d = lc->dimensions;
+	printf("dimensions: h: %d, w: %d, l: %d\n", d.y, d.z, d.x);
+	printf("pins: %d\n", lc->n_pins);
+	for (int i = 0; i < lc->n_pins; i++) {
+		struct logic_cell_pin *pin = lc->pins[i];
+		printf("  pin: %s\n", pin->name);
+		printf("    direction: %d\n", pin->direction);
+		printf("    facing: %d\n", pin->facing);
+		struct coordinate c = pin->coordinate;
+		printf("    coordinates: (%d, %d, %d)\n", c.y, c.z, c.x);
+		printf("    level: %d\n", pin->level);
+		printf("    clock: %d\n", pin->clock);
+		printf("\n");
+	}
+	printf("blocks:\n");
+	print_blocks(lc->blocks, lc->dimensions);
+
+	printf("data:\n");
+	print_data(lc->data, lc->dimensions);
+}
+
 /* Reads the next scalar from the yaml file, returning a copy
  * of the string from the yaml file. */
 static char *read_mapped_string(yaml_parser_t *parser)
@@ -104,20 +168,15 @@ static block_t *read_mapped_blocks(yaml_parser_t *parser, struct logic_cell *lc)
 				if (dimensions.z == 1)
 					dimensions.x++;
 
-				printf("[cell_library] dimensions: %u h x %u w x %u l\n", dimensions.y, dimensions.z, dimensions.x);
-
 				/* reallocate the blocks array */
 				int new_size = calculate_layout_bytes(dimensions);
-				printf("new size = %d\n", new_size);
 				blocks = realloc(blocks, new_size * sizeof(block_t));
 
 				/* set the value of the block */
 				int b = atoi((char *)event.data.scalar.value);
 				if (b < 0 || b > 255)
 					printf("[cell_library] read_mapped_blocks block is < 0 or > 255: %d\n", b);
-				printf("block: %u\n", b);
 				blocks[copied++] = (block_t) b;
-				printf("a\n");
 			}
 			break;
 
@@ -209,7 +268,6 @@ static data_t *read_mapped_data(yaml_parser_t *parser, struct logic_cell *lc)
 				int d = atoi((char *)event.data.scalar.value);
 				if (d < 0 || d > 15)
 					printf("[cell_library] read_mapped_data data is < 0 or > 15: %d\n", d);
-				printf("data: %u\n", d);
 				data[copied++] = (data_t) d;
 			}
 			break;
@@ -275,7 +333,6 @@ static int read_logic_cell_delays(yaml_parser_t *parser, struct logic_cell *lc)
 			} else if (event.type == YAML_SCALAR_EVENT) {
 				if (strcmp((char *)event.data.scalar.value, "combinational") == 0) {
 					lc->delay_combinational = read_mapped_int(parser);
-					printf("combinational delay: %d\n", lc->delay_combinational);
 				}
 			}
 			break;
@@ -438,7 +495,6 @@ static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct lo
 		case PIN:
 			switch (event.type) {
 			case YAML_SCALAR_EVENT:
-				printf("[cell_library] scalar (anchor: %s, tag: %s, value: %s)\n", event.data.scalar.anchor, event.data.scalar.tag, event.data.scalar.value);
 				name = (char *)event.data.scalar.value;
 				if (strcmp(name, "direction") == 0)
 					current->direction = read_pin_direction(parser);
@@ -538,11 +594,13 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 				n_cells++;
 				cells = realloc(cells, sizeof(struct logic_cell *) * n_cells);
 				cells[n_cells - 1] = current;
+#ifdef CELL_LIBRARY_DEBUG
+				print_cell_information(current);
+#endif
 				state = MAP;
 				break;
 
 			case YAML_SCALAR_EVENT:
-				printf("[cell_library] scalar (anchor: %s, tag: %s, value: %s)\n", event.data.scalar.anchor, event.data.scalar.tag, event.data.scalar.value);
 				name = (char *)event.data.scalar.value;
 				if (strcmp(name, "blocks") == 0) {
 					read_mapped_blocks(parser, current);
@@ -597,24 +655,34 @@ struct cell_library *read_cell_library(FILE *f)
 
 		switch (event.type) {
 		case YAML_STREAM_START_EVENT:
+#if CELL_LIBRARY_DEBUG
 			printf("[cell_library] stream start\n");
+#endif
 			break;
 
 		case YAML_DOCUMENT_START_EVENT:
+#if CELL_LIBRARY_DEBUG
 			printf("[cell_library] document start\n");
+#endif
 			break;
 
 		case YAML_DOCUMENT_END_EVENT:
+#if CELL_LIBRARY_DEBUG
 			printf("[cell_library] document end\n");
+#endif
 			state = OUTSIDE;
 			break;
 
 		case YAML_ALIAS_EVENT:
+#if CELL_LIBRARY_DEBUG
 			printf("[cell_library] alias\n");
+#endif
 			break;
 
 		case YAML_SCALAR_EVENT:
+#if CELL_LIBRARY_DEBUG
 			printf("[cell_library] scalar (anchor: %s, tag: %s, value: %s)\n", event.data.scalar.anchor, event.data.scalar.tag, event.data.scalar.value);
+#endif
 			value = (char *)event.data.scalar.value;
 			if (state == INSIDE) {
 				if (strcmp(value, "library_name") == 0) {
