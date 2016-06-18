@@ -5,20 +5,22 @@
 #include "cell.h"
 
 struct placement {
-	char *name;
+	struct logic_cell *cell;
 	struct coordinate placement;
 	unsigned long turns;
-	unsigned long n_pins;
-	struct pin **pins;
 };
 
 struct cell_placements {
 	struct placement **placements;
-	unsigned long length;
+	unsigned long n_placements;
 };
 
 struct cell_placements *simulated_annealing_placement(struct cell_placements *,
 		struct dimensions *,
 		double,
 		unsigned int, unsigned int);
+
+struct cell_placements *placer_initial_place(struct blif *, struct cell_library *);
+
+void print_cell_placements(struct cell_placements *);
 #endif /* __PLACER_H__ */

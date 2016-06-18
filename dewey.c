@@ -44,6 +44,10 @@ int main(int argc, char **argv)
 	cl = read_cell_library(cell_library_file);
 	fclose(cell_library_file);
 
+	/* begin with initial placement */
+	struct cell_placements *initial_placement = placer_initial_place(blif, cl);
+	print_cell_placements(initial_placement);
+
         free_blif(blif);
 	free_cell_library(cl);
 

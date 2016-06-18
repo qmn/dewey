@@ -1,6 +1,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <math.h>
+#include <string.h>
 
 #include "placer.h"
 
@@ -47,7 +48,7 @@ static enum placement_method generate(struct cell_placements *placements,
 	long window_height, window_width;
 
 	/* select a random cell to interchange, displace, or reorient */
-	cell_a_idx = (unsigned long)random() % placements->length;
+	cell_a_idx = (unsigned long)random() % placements->n_placements;
 	cell_a = placements->placements[cell_a_idx];
 
 	/* compute the probabilty we change this cell */
@@ -58,7 +59,7 @@ static enum placement_method generate(struct cell_placements *placements,
 		/* select another cell */
 		cell_b_idx = cell_a_idx;
 		while (cell_b_idx == cell_a_idx)
-			cell_b_idx = (unsigned long)random() % placements->length;
+			cell_b_idx = (unsigned long)random() % placements->n_placements;
 		
 		/* interchange the cells */
 		tmp = placements->placements[cell_b_idx];
@@ -99,19 +100,15 @@ static struct cell_placements *copy_placements(struct cell_placements *old_place
 
 	new_placements = (struct cell_placements *)malloc(sizeof(struct cell_placements));
 
-	new_placements->length = old_placements->length;
-	p = (struct placement **)malloc(old_placements->length * sizeof(struct placement *));
+	new_placements->n_placements = old_placements->n_placements;
+	p = (struct placement **)malloc(old_placements->n_placements * sizeof(struct placement *));
 	o = old_placements->placements;
 
 	/* deep copy each placement */
-	for (i = 0; i < old_placements->length; i++) {
-		p[i]->name = o[i]->name;
+	for (i = 0; i < old_placements->n_placements; i++) {
+		p[i]->cell = o[i]->cell;
 		p[i]->placement = o[i]->placement;
 		p[i]->turns = o[i]->turns;
-
-		/* pins, being sourced from the BLIF object, won't change */
-		p[i]->n_pins = o[i]->n_pins;
-		p[i]->pins = o[i]->pins;
 	}
 
 	new_placements->placements = p;
@@ -119,9 +116,14 @@ static struct cell_placements *copy_placements(struct cell_placements *old_place
 	return new_placements;
 }
 
-static void free_placements(struct cell_placements *placements)
+void free_placements(struct cell_placements *placements)
 {
-	free(placements->placements);
+	int i;
+
+	for (i = 0; i < placements->n_placements; i++) {
+		free(placements->placements[i]);
+	}
+
 	free(placements);
 }
 
@@ -203,4 +205,72 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	}
 
 	return best_placements;
+}
+
+/* tries to match a cell in the blif to a cell in the cell library,
+ * returning NULL if this map fails */
+static struct logic_cell *map_cell_to_library(struct blif_cell *blif_cell, struct cell_library *cl)
+{
+	int i;
+	struct logic_cell *c;
+
+	for (i = 0; i < cl->n_cells; i++) {
+		c = cl->cells[i];
+		if (strcmp(c->name, blif_cell->name) == 0)
+			return c;
+	}
+
+	return NULL;
+}
+
+/* for each cell in the blif, map it to a cell in the cell library,
+ * and allocate struct cell_placements, but don't make any placements */
+static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struct cell_library *cl)
+{
+	struct cell_placements *placements;
+	int i;
+
+	placements = malloc(sizeof(struct cell_placements));
+	placements->n_placements = 0;
+
+	/* for now, only place cells from the blif -- no inputs or outputs */
+	for (i = 0; i < blif->n_cells; i++) {
+		struct blif_cell *c = blif->cells[i];
+		struct placement *p = malloc(sizeof(struct placement));
+
+		p->cell = map_cell_to_library(c, cl);
+		if (!p->cell)
+			printf("[placer] could not map blif cell (%s) to cell library\n", c->name);
+
+		p->placement.x = 0;
+		p->placement.y = 0;
+		p->placement.z = 0;
+
+		p->turns = 0;
+
+		/* extend the placements and insert the newly made placement at the end */
+		if (placements->n_placements++) {
+			placements->placements = realloc(placements->placements, sizeof(struct placement *) * placements->n_placements);
+		} else {
+			placements->placements = malloc(sizeof(struct placement *));
+		}
+		placements->placements[placements->n_placements - 1] = p;
+	}
+
+	return placements;
+}
+
+void print_cell_placements(struct cell_placements *cp)
+{
+	int i;
+	for (i = 0; i < cp->n_placements; i++) {
+		struct placement *p = cp->placements[i];
+		printf("[placer] placement: %s @ (%d, %d, %d), %lu turns\n",
+			p->cell->name, p->placement.y, p->placement.z, p->placement.x, p->turns);
+	}
+}
+
+struct cell_placements *placer_initial_place(struct blif *blif, struct cell_library *cl)
+{
+	return map_blif_to_cell_library(blif, cl);
 }
