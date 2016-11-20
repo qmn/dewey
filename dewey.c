@@ -27,8 +27,10 @@ int main(int argc, char **argv)
                 return 2;
         }
 
+	printf("[dewey] reading blif...\n");
 	blif = read_blif(blif_file);
 	fclose(blif_file);
+	printf("[dewey] done reading blif\n");
 
 	/* read cell library */
 	FILE *cell_library_file;
@@ -46,7 +48,11 @@ int main(int argc, char **argv)
 
 	/* begin with initial placement */
 	struct cell_placements *initial_placement = placer_initial_place(blif, cl);
+	struct dimensions initial_dimensions = compute_placement_dimensions(initial_placement);
 	print_cell_placements(initial_placement);
+
+	printf("[dewey] dimensions: {x: %d, y: %d, z: %d}\n",
+		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
         free_blif(blif);
 	free_cell_library(cl);

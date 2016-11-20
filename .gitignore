@@ -1,3 +1,5 @@
 *.o
 dewey
 *.swp
+tags
+*.dSYM

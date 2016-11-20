@@ -1,7 +1,7 @@
 default: dewey
 
-CC=gcc-5
-CFLAGS=-Wall -pedantic -std=c99 -g -I/usr/local/include -L/usr/local/lib -lyaml
+CC = gcc-6
+CFLAGS += -Wall -pedantic -std=c99 -g -I/usr/local/include -L/usr/local/lib -lyaml
 
 %.o : %.c
 	$(CC) -c $(CFLAGS) -o $@ $<

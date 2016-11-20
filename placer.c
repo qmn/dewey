@@ -127,9 +127,49 @@ void free_placements(struct cell_placements *placements)
 	free(placements);
 }
 
+/* based on the current placements, how large is the design? */
+struct dimensions compute_placement_dimensions(struct cell_placements *cp)
+{
+	int i;
+	struct dimensions d;
+	d.x = 0;
+	d.y = 0;
+	d.z = 0;
+
+	for (i = 0; i < cp->n_placements; i++) {
+		struct placement *p = cp->placements[i];
+		struct coordinate c = p->placement;
+		struct dimensions pd = p->cell->dimensions;
+
+		int cell_x = c.x + pd.x;
+		int cell_y = c.y + pd.y;
+		int cell_z  = c.z + pd.z;
+
+		d.x = max(cell_x, d.x);
+		d.y = max(cell_y, d.y);
+		d.z = max(cell_z, d.z);
+	}
+
+	return d;
+}
+
+static int distance_cityblock(struct coordinate a, struct coordinate b)
+{
+	return abs(a.x - b.x) + abs(a.z - b.z);
+}
+
+/* determine the length of wire needed to connect all points, using
+ * the minimal spanning tree that covers the wires. it's not a perfect metric,
+ * but it is a good enough estimate
+ */
+static int compute_wire_length_penalty(struct cell_placements *cp)
+{
+	return 0;
+}
+
 static int score(struct cell_placements *placements, struct dimensions *dimensions)
 {
-	return 1;
+	return compute_wire_length_penalty(placements);
 }
 
 static int accept(int new_score, int old_score, double t)
@@ -270,7 +310,10 @@ void print_cell_placements(struct cell_placements *cp)
 	}
 }
 
+/* create an initial placement */
 struct cell_placements *placer_initial_place(struct blif *blif, struct cell_library *cl)
 {
-	return map_blif_to_cell_library(blif, cl);
+	struct cell_placements *cp = map_blif_to_cell_library(blif, cl);
+
+	return cp;
 }

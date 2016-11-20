@@ -130,14 +130,17 @@ static void read_inputs(struct blif *blif, char *line)
 	net_t net;
 
 	while ((tmp = strsep(&line, " \t")) != NULL) {
-		blif->n_inputs++;
 		net = add_net(blif, tmp);
-		blif->inputs = realloc(blif->inputs, sizeof(net_t) * blif->n_inputs);
+		if (blif->n_inputs++) {
+			blif->inputs = realloc(blif->inputs, sizeof(net_t) * blif->n_inputs);
+		} else {
+			blif->inputs = malloc(sizeof(net_t));
+		}
 		blif->inputs[blif->n_inputs - 1] = net;
 	}
 
 #ifdef BLIF_DEBUG
-	for (i = 0; i < blif->n_inputs; i++)
+	for (int i = 0; i < blif->n_inputs; i++)
 		printf("[blif] input %d = %d (%s)\n", i, blif->inputs[i], get_net_name(blif, blif->inputs[i]));
 #endif
 }
@@ -148,14 +151,17 @@ static void read_outputs(struct blif *blif, char *line)
 	net_t net;
 
 	while ((tmp = strsep(&line, " \t")) != NULL) {
-		blif->n_outputs++;
 		net = add_net(blif, tmp);
-		blif->outputs = realloc(blif->outputs, sizeof(net_t) * blif->n_outputs);
+		if (blif->n_outputs++) {
+			blif->outputs = realloc(blif->outputs, sizeof(net_t) * blif->n_outputs);
+		} else {
+			blif->outputs = malloc(sizeof(net_t));
+		}
 		blif->outputs[blif->n_outputs - 1] = net;
 	}
 
 #ifdef BLIF_DEBUG
-	for (i = 0; i < blif->n_outputs; i++)
+	for (int i = 0; i < blif->n_outputs; i++)
 		printf("[blif] output %d = %d (%s)\n", i, blif->outputs[i], get_net_name(blif, blif->outputs[i]));
 #endif
 }
@@ -206,8 +212,11 @@ static void read_subckt(struct blif *blif, char *line)
 	}
 	
 	/* add the cell */
-	blif->n_cells++;
-	blif->cells = realloc(blif->cells, sizeof(struct blif_cell *) * blif->n_cells);
+	if (blif->n_cells++) {
+		blif->cells = realloc(blif->cells, sizeof(struct blif_cell *) * blif->n_cells);
+	} else {
+		blif->cells = malloc(sizeof(struct blif_cell *));
+	}
 	blif->cells[blif->n_cells - 1] = cell;
 }
 
@@ -218,9 +227,12 @@ struct blif *read_blif(FILE *f)
 	char *tmp;
 
 	blif = malloc(sizeof(struct blif));
-
+	blif->n_inputs = 0;
+	blif->n_outputs = 0;
+	blif->n_cells = 0;
 
 	/* initialize the list of net names, and let the first one be null */
+	blif->model = NULL;
 	blif->n_nets = 1;
 	blif->net_names = malloc(sizeof(char *) * blif->n_nets);
 	blif->net_names[0] = NULL;

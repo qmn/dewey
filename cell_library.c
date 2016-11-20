@@ -1,10 +1,11 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <yaml.h>
+#include <assert.h>
 
 #include "cell.h"
 
-// #define CELL_LIBRARY_DEBUG
+#define CELL_LIBRARY_DEBUG
 
 void print_blocks(block_t *blocks, struct dimensions d)
 {
@@ -170,6 +171,7 @@ static block_t *read_mapped_blocks(yaml_parser_t *parser, struct logic_cell *lc)
 
 				/* reallocate the blocks array */
 				int new_size = calculate_layout_bytes(dimensions);
+				assert(blocks);
 				blocks = realloc(blocks, new_size * sizeof(block_t));
 
 				/* set the value of the block */
@@ -262,6 +264,7 @@ static data_t *read_mapped_data(yaml_parser_t *parser, struct logic_cell *lc)
 
 				/* reallocate the blocks array */
 				int new_size = calculate_layout_bytes(dimensions);
+				assert(data);
 				data = realloc(data, new_size * sizeof(data_t));
 
 				/* set the value of the block */
@@ -510,6 +513,7 @@ static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct lo
 
 			case YAML_MAPPING_END_EVENT:
 				n_pins++;
+				assert(pins);
 				pins = realloc(pins, sizeof(struct logic_cell_pin *) * n_pins);
 				pins[n_pins - 1] = current;
 				state = MAP;
@@ -592,6 +596,7 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 
 			case YAML_MAPPING_END_EVENT:
 				n_cells++;
+				assert(cells);
 				cells = realloc(cells, sizeof(struct logic_cell *) * n_cells);
 				cells[n_cells - 1] = current;
 #ifdef CELL_LIBRARY_DEBUG
@@ -655,32 +660,32 @@ struct cell_library *read_cell_library(FILE *f)
 
 		switch (event.type) {
 		case YAML_STREAM_START_EVENT:
-#if CELL_LIBRARY_DEBUG
+#ifdef CELL_LIBRARY_DEBUG
 			printf("[cell_library] stream start\n");
 #endif
 			break;
 
 		case YAML_DOCUMENT_START_EVENT:
-#if CELL_LIBRARY_DEBUG
+#ifdef CELL_LIBRARY_DEBUG
 			printf("[cell_library] document start\n");
 #endif
 			break;
 
 		case YAML_DOCUMENT_END_EVENT:
-#if CELL_LIBRARY_DEBUG
+#ifdef CELL_LIBRARY_DEBUG
 			printf("[cell_library] document end\n");
 #endif
 			state = OUTSIDE;
 			break;
 
 		case YAML_ALIAS_EVENT:
-#if CELL_LIBRARY_DEBUG
+#ifdef CELL_LIBRARY_DEBUG
 			printf("[cell_library] alias\n");
 #endif
 			break;
 
 		case YAML_SCALAR_EVENT:
-#if CELL_LIBRARY_DEBUG
+#ifdef CELL_LIBRARY_DEBUG
 			printf("[cell_library] scalar (anchor: %s, tag: %s, value: %s)\n", event.data.scalar.anchor, event.data.scalar.tag, event.data.scalar.value);
 #endif
 			value = (char *)event.data.scalar.value;
