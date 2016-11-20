@@ -48,11 +48,15 @@ int main(int argc, char **argv)
 
 	/* begin with initial placement */
 	struct cell_placements *initial_placement = placer_initial_place(blif, cl);
-	struct dimensions initial_dimensions = compute_placement_dimensions(initial_placement);
+	struct dimensions *initial_dimensions = compute_placement_dimensions(initial_placement);
 	print_cell_placements(initial_placement);
 
 	printf("[dewey] dimensions: {x: %d, y: %d, z: %d}\n",
-		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
+		initial_dimensions->x, initial_dimensions->y, initial_dimensions->z);
+
+	struct cell_placements *new_placements = simulated_annealing_placement(initial_placement, initial_dimensions, 1000, 100, 100);
+	print_cell_placements(new_placements);
+	free(initial_dimensions);
 
         free_blif(blif);
 	free_cell_library(cl);

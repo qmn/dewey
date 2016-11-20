@@ -21,6 +21,11 @@ static int max(int a, int b)
 	return a > b ? a : b;
 }
 
+static int min(int a, int b)
+{
+	return a < b ? a : b;
+}
+
 /*
  * Given an old placement, generate a new placement by either switching
  * the location of two cells or displacing a cell or rotating it. This
@@ -42,7 +47,7 @@ static enum placement_method generate(struct cell_placements *placements,
 		enum placement_method method)
 {
 	unsigned long cell_a_idx, cell_b_idx;
-	struct placement *cell_a, *tmp;
+	struct placement *cell_a;
 	double p, interchange_threshold;
 	double scaling_factor;
 	long window_height, window_width;
@@ -57,14 +62,14 @@ static enum placement_method generate(struct cell_placements *placements,
 
 	if (p > interchange_threshold) {
 		/* select another cell */
-		cell_b_idx = cell_a_idx;
-		while (cell_b_idx == cell_a_idx)
+		do {
 			cell_b_idx = (unsigned long)random() % placements->n_placements;
-		
-		/* interchange the cells */
-		tmp = placements->placements[cell_b_idx];
-		placements->placements[cell_b_idx] = cell_a;
-		placements->placements[cell_a_idx] = tmp;
+		} while (cell_b_idx == cell_a_idx);
+
+		/* interchange the cells' placements */
+		struct coordinate tmp = cell_a->placement;
+		cell_a->placement = placements->placements[cell_b_idx]->placement;
+		placements->placements[cell_b_idx]->placement = tmp;
 
 		return INTERCHANGE;
 	} else if (method == DISPLACE) {
@@ -78,13 +83,15 @@ static enum placement_method generate(struct cell_placements *placements,
 		window_width = max(window_width, MIN_WINDOW_WIDTH);
 
 		/* displace */
-		cell_a->placement.z += random() % (window_height * 2) - window_height;
-		cell_a->placement.x += random() % (window_width * 2) - window_width;
+		int dz = random() % (window_height * 2) - window_height;
+		int dx = random() % (window_width * 2) - window_width;
+		cell_a->placement.z += dz;
+		cell_a->placement.x += dx;
 
 		return DISPLACE;
 	} else {
 		/* reorient */
-		cell_a->turns = (cell_a->turns + 1 % 4);
+		cell_a->turns = (cell_a->turns + 1) % 4;
 		return REORIENT;
 	}
 }
@@ -95,20 +102,27 @@ static enum placement_method generate(struct cell_placements *placements,
 static struct cell_placements *copy_placements(struct cell_placements *old_placements)
 {
 	struct cell_placements *new_placements;
-	struct placement **p, **o;
+	struct placement **p;
 	int i;
 
-	new_placements = (struct cell_placements *)malloc(sizeof(struct cell_placements));
+	new_placements = malloc(sizeof(struct cell_placements));
 
 	new_placements->n_placements = old_placements->n_placements;
-	p = (struct placement **)malloc(old_placements->n_placements * sizeof(struct placement *));
-	o = old_placements->placements;
+	new_placements->n_nets = old_placements->n_nets;
+	p = malloc(old_placements->n_placements * sizeof(struct placement *));
 
 	/* deep copy each placement */
 	for (i = 0; i < old_placements->n_placements; i++) {
-		p[i]->cell = o[i]->cell;
-		p[i]->placement = o[i]->placement;
-		p[i]->turns = o[i]->turns;
+		struct placement *op = old_placements->placements[i];
+		struct placement *np = malloc(sizeof(struct placement));
+		np->cell = op->cell;
+		np->placement = op->placement;
+		np->turns = op->turns;
+		np->nets = malloc(sizeof(net_t) * np->cell->n_pins);
+		for (int j = 0; j < np->cell->n_pins; j++)
+			np->nets[j] = op->nets[j];
+
+		p[i] = np;
 	}
 
 	new_placements->placements = p;
@@ -121,6 +135,7 @@ void free_placements(struct cell_placements *placements)
 	int i;
 
 	for (i = 0; i < placements->n_placements; i++) {
+		free(placements->placements[i]->nets);
 		free(placements->placements[i]);
 	}
 
@@ -128,13 +143,13 @@ void free_placements(struct cell_placements *placements)
 }
 
 /* based on the current placements, how large is the design? */
-struct dimensions compute_placement_dimensions(struct cell_placements *cp)
+struct dimensions *compute_placement_dimensions(struct cell_placements *cp)
 {
 	int i;
-	struct dimensions d;
-	d.x = 0;
-	d.y = 0;
-	d.z = 0;
+	struct dimensions *d = malloc(sizeof(struct dimensions));
+	d->x = 0;
+	d->y = 0;
+	d->z = 0;
 
 	for (i = 0; i < cp->n_placements; i++) {
 		struct placement *p = cp->placements[i];
@@ -145,12 +160,35 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 		int cell_y = c.y + pd.y;
 		int cell_z  = c.z + pd.z;
 
-		d.x = max(cell_x, d.x);
-		d.y = max(cell_y, d.y);
-		d.z = max(cell_z, d.z);
+		d->x = max(cell_x, d->x);
+		d->y = max(cell_y, d->y);
+		d->z = max(cell_z, d->z);
 	}
 
 	return d;
+}
+
+/* move the entire design so that all coordinates are non-negative */
+void recenter(struct cell_placements *cp)
+{
+	int i;
+	struct coordinate d;
+
+	for (i = 0; i < cp->n_placements; i++) {
+		struct placement *p = cp->placements[i];
+		struct coordinate c = p->placement;
+
+		d.x = (i == 0) ? c.x : min(c.x, d.x);
+		d.y = (i == 0) ? c.y : min(c.y, d.y);
+		d.z = (i == 0) ? c.z : min(c.z, d.z);
+	}
+
+	for (i = 0; i < cp->n_placements; i++) {
+		struct placement *p = cp->placements[i];
+		p->placement.x -= d.x;
+		p->placement.y -= d.y;
+		p->placement.z -= d.z;
+	}
 }
 
 static int distance_cityblock(struct coordinate a, struct coordinate b)
@@ -158,29 +196,225 @@ static int distance_cityblock(struct coordinate a, struct coordinate b)
 	return abs(a.x - b.x) + abs(a.z - b.z);
 }
 
+/*
+ * Given a list of coordinates, construct the minimum spanning tree
+ * with Kruskal's algorithm.
+ */
+static struct segments *create_mst(struct coordinate *locs, int n_locs)
+{
+	struct segments *mst = malloc(sizeof(struct segments));
+	mst->n_segments = n_locs - 1;
+	mst->segments = malloc(sizeof(struct segment *) * (mst->n_segments));
+	for (int i = 0; i < mst->n_segments; i++)
+		mst->segments[i] = malloc(sizeof(struct segment));
+
+	/* create weight matrix */
+	int *weights = malloc(sizeof(int) * n_locs * n_locs);
+	for (int y = 0; y < n_locs; y++) {
+		for (int x = 0; x < n_locs; x++) {
+			weights[y * n_locs + x] = distance_cityblock(locs[x], locs[y]);
+/*
+			printf("[mst] weight (%d, %d) = %d\n",
+				y, x, weights[y * n_locs + x]);
+*/
+		}
+	}
+
+	/* assign each location to its own set */
+	int *set_idx = malloc(sizeof(int) * n_locs);
+	for (int i = 0; i < n_locs; i++)
+		set_idx[i] = i;
+
+	/* repeat N-1 times */
+	for (int seg = 0; seg < mst->n_segments; seg++) {
+		/* find the minimum of the set that do not have the same set index; x > y */
+		int seg_x, seg_y;
+		int minimum = -1;
+
+		for (int y = 0; y < n_locs; y++) {
+			for (int x = y + 1; x < n_locs; x++) {
+				int weight = weights[y * n_locs + x];
+				if ((weight < minimum || minimum == -1) && set_idx[x] != set_idx[y]) {
+					minimum = weight;
+					seg_x = x;
+					seg_y = y;
+				}
+			}
+		}
+
+		/* combine the two sets by making set_idx[x] == set_idx[y] */
+/*
+		printf("[mst] combined elt %d (set %d) with elt %d (set %d)\n",
+			seg_x, set_idx[seg_x], seg_y, set_idx[seg_y]);
+*/
+		set_idx[seg_x] = set_idx[seg_y];
+
+		/* add the segment */
+		mst->segments[seg]->start = locs[seg_x];
+		mst->segments[seg]->end = locs[seg_y];
+	}
+
+	free(weights);
+	return mst;
+}
+
+static void free_struct_segments(struct segments *s)
+{
+	for (int i = 0; i < s->n_segments; i++)
+		free(s->segments[i]);
+	free(s->segments);
+	free(s);
+}
+
+/* determine the number of overlaps in the grid */
+static int compute_overlap_penalty(struct cell_placements *cp)
+{
+	int *tmp;
+	int i, penalty;
+	int size;
+	struct placement *p;
+
+	struct dimensions *d = compute_placement_dimensions(cp);
+#ifdef PLACER_SCORE_DEBUG
+	printf("[compute_overlap_penalty] l=%d, w=%d, h=%d\n", d->x, d->z, d->y);
+#endif
+
+	penalty = 0;
+	size = d->x * d->y * d->z;
+	tmp = malloc(sizeof(int) * size);
+	for (i = 0; i < size; i++)
+		tmp[i] = 0;
+
+	for (i = 0; i < cp->n_placements; i++) {
+		p = cp->placements[i];
+
+		struct coordinate c = p->placement;
+		struct dimensions pd = p->cell->dimensions;
+
+		int cell_x = c.x + pd.x;
+		int cell_y = c.y + pd.y;
+		int cell_z  = c.z + pd.z;
+
+		/* if another cell is there, increase the penalty */
+		for (int y = c.y; y < cell_y; y++) {
+			int by = y * d->z * d->x;
+			for (int z = c.z; z < cell_z; z++) {
+				int bz = z * d->x;
+				for (int x = c.x; x < cell_x; x++) {
+					if (tmp[by + bz + x]++)
+						penalty += 1;
+				}
+			}
+		}
+	}
+
+	free(d);
+	free(tmp);
+	return penalty;
+}
+
 /* determine the length of wire needed to connect all points, using
  * the minimal spanning tree that covers the wires. it's not a perfect metric,
  * but it is a good enough estimate
  */
+#define PENALTY_MALLOC_START 4
 static int compute_wire_length_penalty(struct cell_placements *cp)
 {
-	return 0;
+	net_t i;
+	int j;
+	int penalty = 0;
+	int n_coords = PENALTY_MALLOC_START;
+	int found = 0;
+	struct coordinate *coords = malloc(sizeof(struct coordinate) * n_coords);
+
+	/* for each net, compute the constituent pin coordinates */
+	for (i = 1; i < cp->n_nets; i++) {
+		/* clear coords */
+		for (j = 0; j < n_coords; j++) {
+			coords[j].x = 0;
+			coords[j].y = 0;
+			coords[j].z = 0;
+		}
+
+		/* find placement pins on this net */
+		for (j = 0; j < cp->n_placements; j++) {
+			struct placement *pl = cp->placements[j];
+			struct logic_cell *c = pl->cell;
+			for (int k = 0; k < c->n_pins; k++) {
+				if (pl->nets[k] == i) {
+/*
+					printf("[wire_length_penalty] placement %d, cell %s, pin %s\n",
+						i, c->name, c->pins[k]->name);
+*/
+					/* offset pin and add to coords */
+					struct coordinate b = pl->placement;
+					struct coordinate p = c->pins[k]->coordinate;
+					struct coordinate actual;
+
+					actual.x = b.x + p.x;
+					actual.y = b.y + p.y;
+					actual.z = b.z + p.z;
+					coords[found++] = actual;
+
+					/* extend coords if too large */
+					if (found >= n_coords) {
+						n_coords *= 2;
+						coords = realloc(coords, sizeof(struct coordinate) * n_coords);
+					}
+				}
+			}
+		}
+
+		struct segments *mst = create_mst(coords, found);
+		for (int seg = 0; seg < mst->n_segments; seg++)
+			penalty += distance_cityblock(mst->segments[seg]->start, mst->segments[seg]->end);
+		free_struct_segments(mst);
+	}
+
+	free(coords);
+
+	return penalty;
 }
 
-static int score(struct cell_placements *placements, struct dimensions *dimensions)
+static int compute_out_of_bounds_penalty(struct cell_placements *placements, struct dimensions boundary)
 {
-	return compute_wire_length_penalty(placements);
+	int penalty = 0;
+
+	/* add penalty based on pythagorean theoretic from boundary */
+	for (int i = 0; i < placements->n_placements; i++) {
+		struct coordinate c = placements->placements[i]->placement;
+		int dx = min(c.x - boundary.x, 0);
+		int dz = min(c.z - boundary.z, 0);
+		penalty += roundl(sqrt((double)(dz * dx)) + (double)(dz * dz));
+	}
+
+	return penalty;
+}
+
+// #define PLACER_SCORE_DEBUG
+
+/* requires placements be re-centered so that all numbers positive */
+static int score(struct cell_placements *placements, struct dimensions *dimensions, struct dimensions boundary)
+{
+	int overlap = compute_overlap_penalty(placements);
+	int wire_length = compute_wire_length_penalty(placements);
+	int bounds = compute_out_of_bounds_penalty(placements, boundary);
+#ifdef PLACER_SCORE_DEBUG
+	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d\n", overlap, wire_length, bounds);
+#endif
+	return overlap + wire_length + bounds;
 }
 
 static int accept(int new_score, int old_score, double t)
 {
 	double ratio, acceptance_criterion;
 	ratio = (double)(new_score - old_score) / t;
-	if (ratio > 1)
-		return 1;
 
-	acceptance_criterion = fmin(1.0, exp(ratio));
-	return random() < (long)(acceptance_criterion * RAND_MAX);
+	acceptance_criterion = fmin(1.0, exp(-ratio));
+
+	long r = random();
+	long y = lround(acceptance_criterion * RAND_MAX);
+	return r < y;
 }
 
 static double update(double t, double (*alpha)(double))
@@ -192,6 +426,8 @@ static double fixed_alpha(double t)
 {
 	return 0.9;
 }
+
+// #define PLACER_GENERATION_DEBUG
 
 /*
  * Performs simulated annealing (the Timberwolf algorithm)
@@ -208,20 +444,46 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	enum placement_method method, method_used;
 	int new_score, old_score, taken_score;
 
+	struct dimensions wanted;
+	wanted.x = 100;
+	wanted.z = 100;
+	wanted.y = 5;
+
+	printf("[placer] beginning simulated annealing placement\n");
+
 	t = t_0;
 	best_placements = initial_placements;
-	old_score = score(initial_placements, dimensions);
+	old_score = score(initial_placements, dimensions, wanted);
 
 	for (i = 0; i < iterations; i++) {
+		printf("[placer] iteration = %d\n", i);
 		method = DISPLACE;
 
 		for (g = 0; g < generations; g++) {
+#ifdef PLACER_GENERATION_DEBUG
+			printf("[placer] generation = %d\n", g);
+#endif
 			/* make a copy of these placements */
 			new_placements = copy_placements(best_placements);
-			method_used = generate(new_placements, dimensions, t, t_0, method);
-			new_score = score(new_placements, dimensions);
+#ifdef PLACER_GENERATION_DEBUG
+			printf("[placer] made a copy\n");
+#endif
+			method_used = generate(new_placements, &wanted, t, t_0, method);
+			recenter(new_placements);
+#ifdef PLACER_GENERATION_DEBUG
+			printf("[placer] generated a new\n");
+#endif
+			new_score = score(new_placements, dimensions, wanted);
+
+#ifdef PLACER_GENERATION_DEBUG
+			printf("[placer] old_score = %d, new_score = %d\n",
+				old_score, new_score);
+#endif
 
 			if (accept(new_score, old_score, t)) {
+#ifdef PLACER_GENERATION_DEBUG
+				printf("[placer] placer accepts\n");
+#endif
 				/* 
 				 * accept this new placement, free the old
 				 * placements, and replace it with the new ones
@@ -232,14 +494,19 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 				if (method_used == REORIENT)
 					method = DISPLACE;
 			} else {
+#ifdef PLACER_GENERATION_DEBUG
+				printf("[placer] placer rejects\n");
+#endif
 				/* reject the new placement */
 				free_placements(new_placements);
 				taken_score = old_score;
 				if (method_used == DISPLACE)
 					method = REORIENT;
 			}
+			old_score = taken_score;
 		}
 		t = update(t, fixed_alpha);
+		printf("[placer] T = %4.2f\n", t);
 
 		printf("Iteration: %d, Score: %d\n", i, taken_score);
 	}
@@ -271,16 +538,24 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 	int i;
 
 	placements = malloc(sizeof(struct cell_placements));
-	placements->n_placements = 0;
+	placements->n_placements = blif->n_cells;
+	placements->n_nets = blif->n_nets;
+
+	placements->placements = malloc(sizeof(struct placement) * placements->n_placements);
 
 	/* for now, only place cells from the blif -- no inputs or outputs */
 	for (i = 0; i < blif->n_cells; i++) {
 		struct blif_cell *c = blif->cells[i];
 		struct placement *p = malloc(sizeof(struct placement));
+		p->nets = malloc(sizeof(net_t) * c->n_pins);
 
 		p->cell = map_cell_to_library(c, cl);
 		if (!p->cell)
 			printf("[placer] could not map blif cell (%s) to cell library\n", c->name);
+
+		/* copy blif pins net to p->nets */
+		for (int j = 0; j < c->n_pins; j++)
+			p->nets[j] = c->pins[j]->net;
 
 		p->placement.x = 0;
 		p->placement.y = 0;
@@ -288,13 +563,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 
 		p->turns = 0;
 
-		/* extend the placements and insert the newly made placement at the end */
-		if (placements->n_placements++) {
-			placements->placements = realloc(placements->placements, sizeof(struct placement *) * placements->n_placements);
-		} else {
-			placements->placements = malloc(sizeof(struct placement *));
-		}
-		placements->placements[placements->n_placements - 1] = p;
+		placements->placements[i] = p;
 	}
 
 	return placements;
@@ -305,7 +574,7 @@ void print_cell_placements(struct cell_placements *cp)
 	int i;
 	for (i = 0; i < cp->n_placements; i++) {
 		struct placement *p = cp->placements[i];
-		printf("[placer] placement: %s @ (%d, %d, %d), %lu turns\n",
+		printf("[placer] placement: %s @ (y=%d, z=%d, x=%d), %lu turns\n",
 			p->cell->name, p->placement.y, p->placement.z, p->placement.x, p->turns);
 	}
 }
