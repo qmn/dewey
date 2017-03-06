@@ -10,7 +10,7 @@ struct segment {
 };
 
 struct segments {
-	struct segment **segments;
+	struct segment *segments;
 	int n_segments;
 };
 
@@ -24,7 +24,7 @@ struct placement {
 };
 
 struct cell_placements {
-	struct placement **placements;
+	struct placement *placements;
 	unsigned long n_placements;
 
 	int n_nets;

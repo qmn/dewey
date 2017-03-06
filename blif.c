@@ -50,6 +50,7 @@ net_t add_net(struct blif *blif, char *name)
 		blif->n_nets++;
 		blif->net_names = realloc(blif->net_names, sizeof(char *) * blif->n_nets);
 		blif->net_names[id] = strdup(name);
+		printf("[blif] net %d -> %s\n", id, blif->net_names[id]);
 	}
 
 	return id;
@@ -183,13 +184,13 @@ static void read_subckt(struct blif *blif, char *line)
 	cell = malloc(sizeof(struct blif_cell));
 	cell->name = strdup(tmp);
 	cell->pins = NULL;
+	cell->n_pins = 0;
 
 #ifdef BLIF_DEBUG
-	printf("[blif] subckt name = %s\n", cell->name);
+	printf("[blif] subckt %d name = %s\n", blif->n_cells, cell->name);
 #endif
 
 	/* subcircuit pin=net mappings */
-	tmp = strsep(&line, " \t");
 	while (line) {
 		pin = malloc(sizeof(struct pin));
 

@@ -66,7 +66,6 @@ png_bytepp load_textures_0()
 	png_init_io(png, f);
 	png_set_sig_bytes(png, 8);
 
-	printf("a\n");
 	png_set_keep_unknown_chunks(png, PNG_HANDLE_CHUNK_NEVER, NULL, 0);
 
 	png_bytepp row_pointers = png_malloc(png, 512 * sizeof(png_bytep));
@@ -75,10 +74,8 @@ png_bytepp load_textures_0()
 
 	png_set_rows(png, png_info, row_pointers);
 
-	printf("b\n");
 	png_read_png(png, png_info, PNG_TRANSFORM_IDENTITY, NULL);
 
-	printf("f\n");
 	png_destroy_read_struct(&png, &png_info, &png_end_info);
 
 	fclose(f);
@@ -218,27 +215,35 @@ void vis_png_draw_placements(struct cell_placements *cp)
 
 	png_destroy_write_struct(&png, &png_info);
 	fclose(f);
+
+	printf("[vis_png] wrote to placement.png\n");
 }
 
 /* create a 3D array representing actual Minecraft block placements */
 unsigned char *flatten(struct cell_placements *cp)
 {
 	struct dimensions d = compute_placement_dimensions(cp);
-	unsigned char *flat_data = malloc(d.x * d.y * d.z * sizeof(char));
-	for (int i = 0; i < d.x * d.y * d.z; i++)
-		flat_data[i] = 0;
+	int size = d.x * d.y * d.z;
+	unsigned char *flat_data = calloc(size, sizeof(unsigned char));
 
 	for (int i = 0; i < cp->n_placements; i++) {
-		struct placement *p = cp->placements[i];
+		struct placement p = cp->placements[i];
 
-		struct coordinate c = p->placement;
-		struct logic_cell *lc = p->cell;
+		struct coordinate c = p.placement;
+		struct logic_cell *lc = p.cell;
 		struct dimensions lcd = lc->dimensions;
 
-		for (int y = 0; y < lcd.y; y++)
-			for (int z = 0; z < lcd.z; z++)
-				for (int x = 0; x < lcd.x; x++)
-					flat_data[(c.y + y) * d.z * d.x + (c.z + z) * d.x + (c.x + x)] = lc->blocks[y * lcd.z * lcd.x + z * lcd.x + x];
+		for (int y = 0; y < lcd.y; y++) {
+			for (int z = 0; z < lcd.z; z++) {
+				for (int x = 0; x < lcd.x; x++) {
+					int fd_off = (c.y + y) * d.z * d.x + (c.z + z) * d.x + (c.x + x);
+					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
+					if (fd_off > size)
+						continue;
+					flat_data[fd_off] = lc->blocks[b_off];
+				}
+			}
+		}
 	}
 
 	return flat_data;
