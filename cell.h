@@ -33,7 +33,7 @@ struct logic_cell {
 	char *name;
 
 	unsigned int n_pins;
-	struct logic_cell_pin **pins;
+	struct logic_cell_pin *pins;
 
 	struct dimensions dimensions;
 	block_t *blocks;
@@ -46,7 +46,7 @@ struct cell_library {
 	char *name;
 
 	unsigned int n_cells;
-	struct logic_cell **cells;
+	struct logic_cell *cells;
 };
 
 struct cell_library *read_cell_library(FILE *);

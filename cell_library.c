@@ -52,14 +52,14 @@ void print_cell_information(struct logic_cell *lc)
 	printf("dimensions: h: %d, w: %d, l: %d\n", d.y, d.z, d.x);
 	printf("pins: %d\n", lc->n_pins);
 	for (int i = 0; i < lc->n_pins; i++) {
-		struct logic_cell_pin *pin = lc->pins[i];
-		printf("  pin: %s\n", pin->name);
-		printf("    direction: %d\n", pin->direction);
-		printf("    facing: %d\n", pin->facing);
-		struct coordinate c = pin->coordinate;
+		struct logic_cell_pin pin = lc->pins[i];
+		printf("  pin: %s\n", pin.name);
+		printf("    direction: %d\n", pin.direction);
+		printf("    facing: %d\n", pin.facing);
+		struct coordinate c = pin.coordinate;
 		printf("    coordinates: (%d, %d, %d)\n", c.y, c.z, c.x);
-		printf("    level: %d\n", pin->level);
-		printf("    clock: %d\n", pin->clock);
+		printf("    level: %d\n", pin.level);
+		printf("    clock: %d\n", pin.clock);
 		printf("\n");
 	}
 	printf("blocks:\n");
@@ -454,12 +454,12 @@ error:
 static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct logic_cell *lc)
 {
 	unsigned int n_pins = 0;
-	struct logic_cell_pin **pins = malloc(sizeof(struct logic_cell_pin *) * n_pins);
+	struct logic_cell_pin *pins = malloc(sizeof(struct logic_cell_pin) * n_pins);
 
 	yaml_event_t event;
 	enum parser_state { OUTSIDE, MAP, PIN } state = OUTSIDE;
 
-	struct logic_cell_pin *current = NULL;
+	struct logic_cell_pin current;
 	char *name;
 
 	do {
@@ -476,9 +476,8 @@ static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct lo
 			switch (event.type) {
 			case YAML_SCALAR_EVENT:
 				name = (char *)event.data.scalar.value;
-				current = malloc(sizeof(struct logic_cell_pin));
-				current->name = strdup(name);
-				current->clock = 0;
+				current.name = strdup(name);
+				current.clock = 0;
 				break;
 
 			case YAML_MAPPING_START_EVENT:
@@ -500,21 +499,21 @@ static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct lo
 			case YAML_SCALAR_EVENT:
 				name = (char *)event.data.scalar.value;
 				if (strcmp(name, "direction") == 0)
-					current->direction = read_pin_direction(parser);
+					current.direction = read_pin_direction(parser);
 				else if (strcmp(name, "facing") == 0)
-					current->facing = read_pin_facing(parser);
+					current.facing = read_pin_facing(parser);
 				else if (strcmp(name, "coordinates") == 0)
-					current->coordinate = read_pin_coordinates(parser);
+					current.coordinate = read_pin_coordinates(parser);
 				else if (strcmp(name, "level") == 0)
-					current->level = read_pin_level(parser);
+					current.level = read_pin_level(parser);
 				else if (strcmp(name, "clock") == 0)
-					current->clock = read_pin_clock(parser);
+					current.clock = read_pin_clock(parser);
 				break;
 
 			case YAML_MAPPING_END_EVENT:
 				n_pins++;
 				assert(pins);
-				pins = realloc(pins, sizeof(struct logic_cell_pin *) * n_pins);
+				pins = realloc(pins, sizeof(struct logic_cell_pin) * n_pins);
 				pins[n_pins - 1] = current;
 				state = MAP;
 				break;
@@ -532,21 +531,27 @@ static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct lo
 	return n_pins;
 
 error:
-	if (current)
-		free(current);
-
 	return 0;
 }
 
 static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library *cl)
 {
 	unsigned int n_cells = 0;
-	struct logic_cell **cells = malloc(sizeof(struct logic_cell *) * n_cells);
+	struct logic_cell *cells = malloc(sizeof(struct logic_cell) * n_cells);
 
 	yaml_event_t event;
 	enum parser_state { OUTSIDE, MAP, CELL } state = OUTSIDE;
 
-	struct logic_cell *current = NULL;
+	struct logic_cell current;
+	current.name = NULL;
+	current.n_pins = 0;
+	current.pins = NULL;
+	current.dimensions.x = 0;
+	current.dimensions.y = 0;
+	current.dimensions.z = 0;
+	current.blocks = NULL;
+	current.data = NULL;
+
 	char *name;
 
 	do {
@@ -569,9 +574,8 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 		case MAP:
 			switch (event.type) {
 			case YAML_SCALAR_EVENT:
-				current = malloc(sizeof(struct logic_cell));
-				current->name = strdup((char *)event.data.scalar.value);
-				printf("[cell_library] reading in library cell \"%s\"\n", current->name);
+				current.name = strdup((char *)event.data.scalar.value);
+				printf("[cell_library] reading in library cell \"%s\"\n", current.name);
 				break;
 
 			case YAML_MAPPING_START_EVENT:
@@ -597,10 +601,10 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 			case YAML_MAPPING_END_EVENT:
 				n_cells++;
 				assert(cells);
-				cells = realloc(cells, sizeof(struct logic_cell *) * n_cells);
+				cells = realloc(cells, sizeof(struct logic_cell) * n_cells);
 				cells[n_cells - 1] = current;
 #ifdef CELL_LIBRARY_DEBUG
-				print_cell_information(current);
+				print_cell_information(&current);
 #endif
 				state = MAP;
 				break;
@@ -608,13 +612,13 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 			case YAML_SCALAR_EVENT:
 				name = (char *)event.data.scalar.value;
 				if (strcmp(name, "blocks") == 0) {
-					read_mapped_blocks(parser, current);
+					read_mapped_blocks(parser, &current);
 				} else if (strcmp(name, "data") == 0) {
-					read_mapped_data(parser, current);
+					read_mapped_data(parser, &current);
 				} else if (strcmp(name, "pins") == 0) {
-					read_mapped_logic_cell_pins(parser, current);
+					read_mapped_logic_cell_pins(parser, &current);
 				} else if (strcmp(name, "delay") == 0) {
-					read_logic_cell_delays(parser, current);
+					read_logic_cell_delays(parser, &current);
 				} else {
 					printf("[cell_library] read_mapped_cells got unexpected key: %s\n", name);
 				}
@@ -633,8 +637,6 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 	return n_cells;
 
 error:
-	if (current)
-		free(current);
 
 	return 0;
 }
@@ -727,15 +729,8 @@ error:
 
 static void free_logic_cell(struct logic_cell *logic_cell)
 {
-	int i;
-
 	free(logic_cell->name);
-
-	for (i = 0; i < logic_cell->n_pins; i++)
-		free(logic_cell->pins[i]);
-
 	free(logic_cell->pins);
-
 	free(logic_cell->blocks);
 	free(logic_cell->data);
 }
@@ -745,7 +740,7 @@ void free_cell_library(struct cell_library *cl)
 	int i;
 
 	for (i = 0; i < cl->n_cells; i++)
-		free_logic_cell(cl->cells[i]);
+		free_logic_cell(&(cl->cells[i]));
 
 	free(cl->cells);
 }

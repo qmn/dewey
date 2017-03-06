@@ -377,7 +377,7 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 			net_t k = pl.nets[j];
 
 			struct coordinate b = pl.placement;
-			struct coordinate p = c->pins[j]->coordinate;
+			struct coordinate p = c->pins[j].coordinate;
 
 			struct coordinate actual = {b.x + p.x, b.y + p.y, b.z + p.z};
 			coords[k][found[k]++] = actual;
@@ -608,7 +608,7 @@ static struct logic_cell *map_cell_to_library(struct blif_cell *blif_cell, struc
 	struct logic_cell *c;
 
 	for (i = 0; i < cl->n_cells; i++) {
-		c = cl->cells[i];
+		c = &(cl->cells[i]);
 		if (strcmp(c->name, blif_cell->name) == 0)
 			return c;
 	}
