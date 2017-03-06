@@ -231,7 +231,7 @@ unsigned char *flatten(struct cell_placements *cp)
 
 		struct coordinate c = p.placement;
 		struct logic_cell *lc = p.cell;
-		struct dimensions lcd = lc->dimensions;
+		struct dimensions lcd = lc->dimensions[p.turns];
 
 		for (int y = 0; y < lcd.y; y++) {
 			for (int z = 0; z < lcd.z; z++) {
@@ -240,7 +240,7 @@ unsigned char *flatten(struct cell_placements *cp)
 					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
 					if (fd_off > size)
 						continue;
-					flat_data[fd_off] = lc->blocks[b_off];
+					flat_data[fd_off] = lc->blocks[p.turns][b_off];
 				}
 			}
 		}

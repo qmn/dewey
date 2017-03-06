@@ -48,11 +48,11 @@ void print_data(data_t *data, struct dimensions d)
 void print_cell_information(struct logic_cell *lc)
 {
 	printf("logic cell: %s\n", lc->name);
-	struct dimensions d = lc->dimensions;
+	struct dimensions d = lc->dimensions[0];
 	printf("dimensions: h: %d, w: %d, l: %d\n", d.y, d.z, d.x);
 	printf("pins: %d\n", lc->n_pins);
 	for (int i = 0; i < lc->n_pins; i++) {
-		struct logic_cell_pin pin = lc->pins[i];
+		struct logic_cell_pin pin = lc->pins[0][i];
 		printf("  pin: %s\n", pin.name);
 		printf("    direction: %d\n", pin.direction);
 		printf("    facing: %d\n", pin.facing);
@@ -63,10 +63,10 @@ void print_cell_information(struct logic_cell *lc)
 		printf("\n");
 	}
 	printf("blocks:\n");
-	print_blocks(lc->blocks, lc->dimensions);
+	print_blocks(lc->blocks[0], lc->dimensions[0]);
 
 	printf("data:\n");
-	print_data(lc->data, lc->dimensions);
+	print_data(lc->data[0], lc->dimensions[0]);
 }
 
 /* Reads the next scalar from the yaml file, returning a copy
@@ -188,8 +188,8 @@ static block_t *read_mapped_blocks(yaml_parser_t *parser, struct logic_cell *lc)
 		}
 	} while (state != OUTSIDE);
 
-	lc->blocks = blocks;
-	lc->dimensions = dimensions;
+	lc->blocks[0] = blocks;
+	lc->dimensions[0] = dimensions;
 
 	return blocks;
 
@@ -281,8 +281,8 @@ static data_t *read_mapped_data(yaml_parser_t *parser, struct logic_cell *lc)
 		}
 	} while (state != OUTSIDE);
 
-	lc->data = data;
-	lc->dimensions = dimensions;
+	lc->data[0] = data;
+	lc->dimensions[0] = dimensions;
 
 	return data;
 
@@ -527,11 +527,55 @@ static unsigned int read_mapped_logic_cell_pins(yaml_parser_t *parser, struct lo
 	} while (state != OUTSIDE);
 
 	lc->n_pins = n_pins;
-	lc->pins = pins;
+	lc->pins[0] = pins;
 	return n_pins;
 
 error:
 	return 0;
+}
+
+/* make a copy of cell's dimensions, blocks, data, and pins, and rotate it 90 degrees CCW
+ * where i corresponds to the `turn` index entry you want to make */
+static void cell_rot90(struct logic_cell *cell, int i)
+{
+	cell->dimensions[i].z = cell->dimensions[i-1].x; // z <-> x
+	cell->dimensions[i].y = cell->dimensions[i-1].y; // y <-> y
+	cell->dimensions[i].x = cell->dimensions[i-1].z; // x <-> z
+
+	int ol = cell->dimensions[i-1].x;
+	int oh = cell->dimensions[i-1].y;
+	int ow = cell->dimensions[i-1].z;
+	int nl = cell->dimensions[i].x;
+	int nw = cell->dimensions[i].z;
+
+	/* rotate blocks and data */
+	cell->blocks[i] = calloc(ol * oh * ow, sizeof(block_t));
+	cell->data[i] = calloc(ol * oh * ow, sizeof(data_t));
+
+	printf("%s rot %d\n", cell->name, i);
+	
+	for (int y = 0; y < oh; y++) {
+		int by = y * ol * ow;
+		for (int oz = 0, nx = 0; oz < ow && nx < nl; oz++, nx++) {
+			for (int ox = 0, nz = nw - 1; ox < ol && nz >= 0; ox++, nz--) {
+				cell->blocks[i][by + nz * nl + nx] = cell->blocks[i-1][by + oz * ol + ox];
+				cell->data[i][by + nz * nl + nx] = cell->data[i-1][by + oz * ol + ox];
+			}
+		}
+	}
+
+	cell->pins[i] = malloc(sizeof(struct logic_cell_pin) * cell->n_pins);
+	memcpy(cell->pins[i], cell->pins[i-1], sizeof(struct logic_cell_pin) * cell->n_pins);
+
+	/* rotate pins */
+	for (int j = 0; j < cell->n_pins; j++) {
+		int ox = cell->pins[i-1][j].coordinate.x;
+		int oz = cell->pins[i-1][j].coordinate.z;
+		// int width = cell->dimensions[i-1].z;
+		cell->pins[i][j].name = strdup(cell->pins[i][j].name);
+		cell->pins[i][j].coordinate.z = ol - 1 - ox;
+		cell->pins[i][j].coordinate.x = oz;
+	}
 }
 
 static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library *cl)
@@ -545,12 +589,7 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 	struct logic_cell current;
 	current.name = NULL;
 	current.n_pins = 0;
-	current.pins = NULL;
-	current.dimensions.x = 0;
-	current.dimensions.y = 0;
-	current.dimensions.z = 0;
-	current.blocks = NULL;
-	current.data = NULL;
+	current.pins[0] = NULL;
 
 	char *name;
 
@@ -575,6 +614,13 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 			switch (event.type) {
 			case YAML_SCALAR_EVENT:
 				current.name = strdup((char *)event.data.scalar.value);
+				current.n_pins = 0;
+				current.pins[0] = NULL;
+				current.dimensions[0].x = 0;
+				current.dimensions[0].y = 0;
+				current.dimensions[0].z = 0;
+				current.blocks[0] = NULL;
+				current.data[0] = NULL;
 				printf("[cell_library] reading in library cell \"%s\"\n", current.name);
 				break;
 
@@ -603,6 +649,10 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 				assert(cells);
 				cells = realloc(cells, sizeof(struct logic_cell) * n_cells);
 				cells[n_cells - 1] = current;
+				/* apply cell rotations */
+				cell_rot90(&cells[n_cells-1], 1);
+				cell_rot90(&cells[n_cells-1], 2);
+				cell_rot90(&cells[n_cells-1], 3);
 #ifdef CELL_LIBRARY_DEBUG
 				print_cell_information(&current);
 #endif
@@ -730,17 +780,18 @@ error:
 static void free_logic_cell(struct logic_cell *logic_cell)
 {
 	free(logic_cell->name);
-	free(logic_cell->pins);
-	free(logic_cell->blocks);
-	free(logic_cell->data);
+	free(logic_cell->pins[0]);
+	free(logic_cell->blocks[0]);
+	free(logic_cell->data[0]);
 }
 
 void free_cell_library(struct cell_library *cl)
 {
 	int i;
 
-	for (i = 0; i < cl->n_cells; i++)
-		free_logic_cell(&(cl->cells[i]));
+	for (i = 0; i < cl->n_cells; i++) {
+		free_logic_cell(&cl->cells[i]);
+	}
 
-	free(cl->cells);
+	free(cl);
 }

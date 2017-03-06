@@ -29,15 +29,19 @@ struct logic_cell_pin {
 	int clock; /* for DFFs */
 };
 
+typedef struct logic_cell_pin * struct_pin_p;
+typedef block_t * block_t_p;
+typedef data_t * data_t_p;
+
 struct logic_cell {
 	char *name;
 
 	unsigned int n_pins;
-	struct logic_cell_pin *pins;
+	struct_pin_p pins[4];
 
-	struct dimensions dimensions;
-	block_t *blocks;
-	data_t *data;
+	struct dimensions dimensions[4];
+	block_t_p blocks[4];
+	data_t_p data[4];
 
 	int delay_combinational;
 };

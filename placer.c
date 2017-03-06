@@ -147,7 +147,7 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 	for (i = 0; i < cp->n_placements; i++) {
 		struct placement p = cp->placements[i];
 		struct coordinate c = p.placement;
-		struct dimensions pd = p.cell->dimensions;
+		struct dimensions pd = p.cell->dimensions[p.turns];
 
 		int cell_x = c.x + pd.x + 1;
 		int cell_y = c.y + pd.y + 1;
@@ -320,7 +320,7 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 		p = cp->placements[i];
 
 		struct coordinate c = p.placement;
-		struct dimensions pd = p.cell->dimensions;
+		struct dimensions pd = p.cell->dimensions[p.turns];
 
 		int cell_x = c.x + pd.x;
 		int cell_y = c.y + pd.y;
@@ -377,7 +377,7 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 			net_t k = pl.nets[j];
 
 			struct coordinate b = pl.placement;
-			struct coordinate p = c->pins[j].coordinate;
+			struct coordinate p = c->pins[pl.turns][j].coordinate;
 
 			struct coordinate actual = {b.x + p.x, b.y + p.y, b.z + p.z};
 			coords[k][found[k]++] = actual;
@@ -459,7 +459,7 @@ static int compute_design_size_penalty(struct cell_placements *placements)
 // #define PLACER_SCORE_DEBUG
 
 /* requires placements be re-centered so that all numbers positive */
-static int score(struct cell_placements *placements, struct dimensions *dimensions, struct dimensions boundary)
+static int score(struct cell_placements *placements, struct dimensions boundary)
 {
 	int overlap = compute_overlap_penalty(placements);
 	int wire_length = compute_wire_length_penalty(placements);
@@ -519,7 +519,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 
 	t = t_0;
 	best_placements = initial_placements;
-	old_score = score(initial_placements, dimensions, wanted);
+	old_score = score(initial_placements, wanted);
 
 	int match_iterations = 0;
 	int match_score = old_score;
@@ -546,7 +546,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generated a new\n");
 #endif
-			new_score = score(new_placements, dimensions, wanted);
+			new_score = score(new_placements, wanted);
 
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] old_score = %d, new_score = %d\n",
@@ -588,11 +588,13 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 		}
 		// printf("[placer] T = %4.2f\n", t);
 
-		printf("Iteration: %d, Score: %d (overlap penalty: %d), Temperature: %4.2f\n", i, taken_score, overlap_penalty, t);
+		printf("\rIteration: %4d, Score: %6d (overlap penalty: %6d), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, t);
+		fflush(stdout);
 		// print_cell_placements(best_placements);
 
 		t = update(t, fixed_alpha);
 	}
+	printf("\nPlacement complete\n");
 
 	/* free overlap_tmp structure */
 	free(overlap_tmp);
@@ -640,6 +642,8 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 		p.cell = map_cell_to_library(c, cl);
 		if (!p.cell)
 			printf("[placer] could not map blif cell (%s) to cell library\n", c->name);
+		else
+			printf("[placer] map cell %d to %s\n", i, p.cell->name);
 
 		/* copy blif pins net to p->nets */
 		for (int j = 0; j < c->n_pins; j++) {
