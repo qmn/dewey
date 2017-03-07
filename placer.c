@@ -665,12 +665,23 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 	return placements;
 }
 
-/* produces a 3D array representing actual Minecraft block placements */
-block_t *extract_placements(struct cell_placements *cp)
+void free_extraction(struct extraction *e)
 {
+	free(e->blocks);
+	free(e->data);
+	free(e);
+}
+
+/* produces a 3D array representing actual Minecraft block placements */
+struct extraction *extract_placements(struct cell_placements *cp)
+{
+	struct extraction *e = malloc(sizeof(struct extraction));
 	struct dimensions d = compute_placement_dimensions(cp);
+	e->dimensions = d;
+
 	int size = d.x * d.y * d.z;
-	block_t *flat_data = calloc(size, sizeof(block_t));
+	e->blocks = calloc(size, sizeof(block_t));
+	e->data = calloc(size, sizeof(data_t));
 
 	for (int i = 0; i < cp->n_placements; i++) {
 		struct placement p = cp->placements[i];
@@ -686,13 +697,14 @@ block_t *extract_placements(struct cell_placements *cp)
 					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
 
 					assert(fd_off >= 0 && fd_off <= size);
-					flat_data[fd_off] = lc->blocks[p.turns][b_off];
+					e->blocks[fd_off] = lc->blocks[p.turns][b_off];
+					e->data[fd_off] = lc->data[p.turns][b_off];
 				}
 			}
 		}
 	}
 
-	return flat_data;
+	return e;
 }
 
 void print_cell_placements(struct cell_placements *cp)

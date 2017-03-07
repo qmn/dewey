@@ -4,6 +4,12 @@
 #include "blif.h"
 #include "cell.h"
 
+struct extraction {
+	struct dimensions dimensions;
+	block_t *blocks;
+	data_t *data;
+};
+
 struct segment {
 	struct coordinate start;
 	struct coordinate end;
@@ -40,5 +46,6 @@ struct dimensions compute_placement_dimensions(struct cell_placements *);
 
 void print_cell_placements(struct cell_placements *);
 
-block_t *extract_placements(struct cell_placements *);
+struct extraction *extract_placements(struct cell_placements *);
+void free_extraction(struct extraction *);
 #endif /* __PLACER_H__ */

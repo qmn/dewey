@@ -539,7 +539,7 @@ static data_t data_rot90(block_t b, data_t d)
 {
 	// applies the rotation by indexing into it
 	int torch_rotations[] = {0, 4, 3, 1, 2, 5}; // up=5, north=4, south=3, west=2, east=1
-	int repeater_rotations[] = {3, 0, 1, 2};; // north=4, west=3, south=2, east=1
+	int repeater_rotations[] = {3, 0, 1, 2};; // north=0, west=3, south=2, east=1
 
 	switch (b) {
 	case 75:
@@ -547,9 +547,11 @@ static data_t data_rot90(block_t b, data_t d)
 		return torch_rotations[d];
 	case 93:
 	case 94: // repeater
+	case 149:
+	case 150: // comparator
 		// data & 0x3 is the rotation
 		// data & 0xc are other bits
-		return (d & 0xc) | (repeater_rotations[d]);
+		return (d & 0xc) | (repeater_rotations[d & 0x3]);
 	default:
 		return d;
 	}
