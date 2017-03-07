@@ -5,7 +5,7 @@
 
 #include "cell.h"
 
-#define CELL_LIBRARY_DEBUG
+// #define CELL_LIBRARY_DEBUG
 
 void print_blocks(block_t *blocks, struct dimensions d)
 {
@@ -534,6 +534,27 @@ error:
 	return 0;
 }
 
+/* for some blocks, rotations by 90 degrees change data */
+static data_t data_rot90(block_t b, data_t d)
+{
+	// applies the rotation by indexing into it
+	int torch_rotations[] = {0, 4, 3, 1, 2, 5}; // up=5, north=4, south=3, west=2, east=1
+	int repeater_rotations[] = {3, 0, 1, 2};; // north=4, west=3, south=2, east=1
+
+	switch (b) {
+	case 75:
+	case 76: // torch
+		return torch_rotations[d];
+	case 93:
+	case 94: // repeater
+		// data & 0x3 is the rotation
+		// data & 0xc are other bits
+		return (d & 0xc) | (repeater_rotations[d]);
+	default:
+		return d;
+	}
+}
+
 /* make a copy of cell's dimensions, blocks, data, and pins, and rotate it 90 degrees CCW
  * where i corresponds to the `turn` index entry you want to make */
 static void cell_rot90(struct logic_cell *cell, int i)
@@ -558,8 +579,11 @@ static void cell_rot90(struct logic_cell *cell, int i)
 		int by = y * ol * ow;
 		for (int oz = 0, nx = 0; oz < ow && nx < nl; oz++, nx++) {
 			for (int ox = 0, nz = nw - 1; ox < ol && nz >= 0; ox++, nz--) {
-				cell->blocks[i][by + nz * nl + nx] = cell->blocks[i-1][by + oz * ol + ox];
-				cell->data[i][by + nz * nl + nx] = cell->data[i-1][by + oz * ol + ox];
+				block_t old_b = cell->blocks[i-1][by + oz * ol + ox];
+				data_t old_d = cell->data[i-1][by + oz * ol + ox];
+				data_t new_d = data_rot90(old_b, old_d);
+				cell->blocks[i][by + nz * nl + nx] = old_b;
+				cell->data[i][by + nz * nl + nx] = new_d;
 			}
 		}
 	}
@@ -780,9 +804,11 @@ error:
 static void free_logic_cell(struct logic_cell *logic_cell)
 {
 	free(logic_cell->name);
-	free(logic_cell->pins[0]);
-	free(logic_cell->blocks[0]);
-	free(logic_cell->data[0]);
+	for (int i = 0; i < 4; i++) {
+		free(logic_cell->pins[i]);
+		free(logic_cell->blocks[i]);
+		free(logic_cell->data[i]);
+	}
 }
 
 void free_cell_library(struct cell_library *cl)

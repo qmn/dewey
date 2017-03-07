@@ -195,7 +195,7 @@ void vis_png_draw_placements(struct cell_placements *cp)
 	}
 
 
-	unsigned char *flattened = flatten(cp);
+	block_t *flattened = extract_placements(cp);
 	for (int y = 0; y < d.y; y++) {
 		for (int z = 0; z < d.z; z++) {
 			for (int x = 0; x < d.x; x++) {
@@ -204,6 +204,7 @@ void vis_png_draw_placements(struct cell_placements *cp)
 			}
 		}
 	}
+	free(flattened);
 
 	png_write_rows(png, row_data, img_height);
 
@@ -219,32 +220,3 @@ void vis_png_draw_placements(struct cell_placements *cp)
 	printf("[vis_png] wrote to placement.png\n");
 }
 
-/* create a 3D array representing actual Minecraft block placements */
-unsigned char *flatten(struct cell_placements *cp)
-{
-	struct dimensions d = compute_placement_dimensions(cp);
-	int size = d.x * d.y * d.z;
-	unsigned char *flat_data = calloc(size, sizeof(unsigned char));
-
-	for (int i = 0; i < cp->n_placements; i++) {
-		struct placement p = cp->placements[i];
-
-		struct coordinate c = p.placement;
-		struct logic_cell *lc = p.cell;
-		struct dimensions lcd = lc->dimensions[p.turns];
-
-		for (int y = 0; y < lcd.y; y++) {
-			for (int z = 0; z < lcd.z; z++) {
-				for (int x = 0; x < lcd.x; x++) {
-					int fd_off = (c.y + y) * d.z * d.x + (c.z + z) * d.x + (c.x + x);
-					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
-					if (fd_off > size)
-						continue;
-					flat_data[fd_off] = lc->blocks[p.turns][b_off];
-				}
-			}
-		}
-	}
-
-	return flat_data;
-}

@@ -2,6 +2,7 @@
 #include <stdio.h>
 #include <math.h>
 #include <string.h>
+#include <assert.h>
 
 #include "placer.h"
 
@@ -309,6 +310,7 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 	size = d.x * d.y * d.z;
 	if (!overlap_tmp || size > overlap_tmp_size) {
 		int new_size = size * 2;
+		printf("[compute_overlap_penalty] l=%d, w=%d, h=%d\n", d.x, d.z, d.y);
 		printf("[compute_overlap_penalty] resizing from %d to %d (%d x %d x %d)\n", overlap_tmp_size, new_size, d.x, d.z, d.y);
 		free(overlap_tmp);
 		overlap_tmp = malloc(new_size * sizeof(char));
@@ -588,7 +590,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 		}
 		// printf("[placer] T = %4.2f\n", t);
 
-		printf("\rIteration: %4d, Score: %6d (overlap penalty: %6d), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, t);
+		printf("\rIteration: %4d, Score: %6u (overlap penalty: %6u), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, t);
 		fflush(stdout);
 		// print_cell_placements(best_placements);
 
@@ -661,6 +663,36 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 	}
 
 	return placements;
+}
+
+/* produces a 3D array representing actual Minecraft block placements */
+block_t *extract_placements(struct cell_placements *cp)
+{
+	struct dimensions d = compute_placement_dimensions(cp);
+	int size = d.x * d.y * d.z;
+	block_t *flat_data = calloc(size, sizeof(block_t));
+
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct placement p = cp->placements[i];
+
+		struct coordinate c = p.placement;
+		struct logic_cell *lc = p.cell;
+		struct dimensions lcd = lc->dimensions[p.turns];
+
+		for (int y = 0; y < lcd.y; y++) {
+			for (int z = 0; z < lcd.z; z++) {
+				for (int x = 0; x < lcd.x; x++) {
+					int fd_off = (c.y + y) * d.z * d.x + (c.z + z) * d.x + (c.x + x);
+					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
+
+					assert(fd_off >= 0 && fd_off <= size);
+					flat_data[fd_off] = lc->blocks[p.turns][b_off];
+				}
+			}
+		}
+	}
+
+	return flat_data;
 }
 
 void print_cell_placements(struct cell_placements *cp)

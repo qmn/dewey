@@ -56,12 +56,12 @@ int main(int argc, char **argv)
 	printf("[dewey] dimensions: {x: %d, y: %d, z: %d}\n",
 		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
-	struct cell_placements *new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 1000, 200, 100);
+	struct cell_placements *new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 500, 500, 100);
 	print_cell_placements(new_placements);
 
 /*
 	struct dimensions fd = compute_placement_dimensions(new_placements);
-	unsigned char *flattened = flatten(new_placements);
+	block_t *flattened = extract_placements(new_placements);
 	for (int y = 0; y < fd.y; y++) {
 		for (int z = 0; z < fd.z; z++) {
 			for (int x = 0; x < fd.x; x++) {

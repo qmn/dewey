@@ -1,18 +1,24 @@
-default: dewey
-
 CC = gcc-6
 CFLAGS += -Wall -pedantic -std=c99 -g -I/usr/local/include -L/usr/local/lib -lyaml -lpng -pg
+BUILD_DIR = build
+SRCS = $(wildcard *.c)
+OBJS = $(foreach f,$(SRCS:.c=.o),$(BUILD_DIR)/$f)
 
-%.o : %.c
+default: dewey
+
+$(BUILD_DIR) :
+	mkdir -p $(BUILD_DIR)
+
+$(BUILD_DIR)/%.o : %.c $(BUILD_DIR)
 	$(CC) -c $(CFLAGS) -o $@ $<
 
-dewey: dewey.o placer.o blif.o cell_library.o vis_png.o
+dewey: $(OBJS)
 	$(CC) $(CFLAGS) -o $@ $^
 
 test: dewey
 	./dewey counter.blif
 
 clean:
-	rm -rf *.o
+	rm -rf build dewey
 
 .PHONY: default clean

@@ -39,4 +39,6 @@ struct cell_placements *placer_initial_place(struct blif *, struct cell_library 
 struct dimensions compute_placement_dimensions(struct cell_placements *);
 
 void print_cell_placements(struct cell_placements *);
+
+block_t *extract_placements(struct cell_placements *);
 #endif /* __PLACER_H__ */
