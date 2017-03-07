@@ -76,7 +76,7 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 	}
 
 	gdImagePtr rs = redstone_mask(textures_0);
-	int repeater_angle[] = {0, 270, 180, 90}; // data & 0x3 -> angle
+	int repeater_angle[] = {180, 90, 0, 270}; // data & 0x3 -> angle
 	int torch_angle[] = {0, 270, 90, 180, 0, 0};
 
 	switch (block) {

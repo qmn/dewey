@@ -5,6 +5,7 @@
 #include <assert.h>
 
 #include "placer.h"
+#include "segment.h"
 
 #define MIN_WINDOW_WIDTH 2
 #define MIN_WINDOW_HEIGHT 2
@@ -185,111 +186,6 @@ void recenter(struct cell_placements *cp)
 	}
 }
 
-static int distance_cityblock(struct coordinate a, struct coordinate b)
-{
-	return abs(a.x - b.x) + abs(a.z - b.z);
-}
-
-struct mst_heap {
-	struct mst_heap_node *nodes;
-	int n_nodes;
-};
-
-struct mst_heap_node {
-	int weight;
-	int x;
-	int y;
-};
-
-struct mst_ubr_node {
-	struct mst_ubr_node *parent;
-	int rank;
-};
-
-static struct mst_ubr_node *mst_find(struct mst_ubr_node *n)
-{
-	if (n->parent != n)
-		n->parent = mst_find(n->parent);
-
-	return n->parent;
-}
-
-static void mst_union(struct mst_ubr_node *x, struct mst_ubr_node *y)
-{
-	struct mst_ubr_node *rx = mst_find(x);
-	struct mst_ubr_node *ry = mst_find(y);
-
-	if (rx == ry)
-		return;
-
-	rx->parent = ry;
-
-	if (rx->rank == ry->rank)
-		ry->rank++;
-}
-
-int mst_heapsort_cmp(const void *x, const void *y)
-{
-	return ((struct mst_heap_node *)x)->weight - ((struct mst_heap_node *)y)->weight;
-}
-
-static struct mst_heap *mst_heapsort(struct coordinate *locs, int n_locs)
-{
-	struct mst_heap *h = malloc(sizeof(struct mst_heap));
-	h->n_nodes = n_locs * (n_locs - 1) / 2;
-	h->nodes = calloc(h->n_nodes, sizeof(struct mst_heap_node));
-
-	/* create weight matrix; x > y */
-	int c = 0;
-	for (int y = 0; y < n_locs; y++) {
-		for (int x = y + 1; x < n_locs; x++) {
-			struct mst_heap_node n = {distance_cityblock(locs[x], locs[y]), x, y};
-			h->nodes[c++] = n;
-		}
-	}
-
-	heapsort(h->nodes, h->n_nodes, sizeof(struct mst_heap_node), mst_heapsort_cmp);
-
-	return h;
-}
-
-static struct segments *create_mst(struct coordinate *locs, int n_locs)
-{
-	struct segments *mst = malloc(sizeof(struct segments));
-	mst->n_segments = n_locs - 1;
-	mst->segments = calloc(sizeof(struct segment), (mst->n_segments));
-
-	struct mst_heap *h = mst_heapsort(locs, n_locs);
-
-	struct mst_ubr_node *s = calloc(sizeof(struct mst_ubr_node), n_locs);
-	// make-set
-	for (int i = 0; i < n_locs; i++) {
-		s[i].parent = &s[i];
-		s[i].rank = 0;
-	}
-
-	int n_segments = 0;
-	for (int i = 0; i < h->n_nodes; i++) {
-		int x = h->nodes[i].x;
-		int y = h->nodes[i].y;
-		if (mst_find(&s[x]) != mst_find(&s[y])) {
-			struct segment new_seg = {locs[x], locs[y]};
-			mst->segments[n_segments++] = new_seg;
-			mst_union(&s[x], &s[y]);
-			if (n_segments >= mst->n_segments)
-				break;
-		}
-	}
-
-	return mst;
-}
-
-static void free_struct_segments(struct segments *s)
-{
-	free(s->segments);
-	free(s);
-}
-
 static char *overlap_tmp = NULL;
 static int overlap_tmp_size = 0;
 static int overlap_penalty = 0;
@@ -352,6 +248,109 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 	return penalty;
 }
 
+struct net_pin_map {
+	int n_nets;
+	int *n_pins_for_net;
+	struct placed_pin **pins;
+};
+
+/* given a list of pin placements, generate a list collecting
+ * pins based on the net they belong to */
+struct net_pin_map *placer_create_net_pin_map(struct pin_placements *pp)
+{
+	struct net_pin_map *npm = malloc(sizeof(struct net_pin_map));
+
+	/* count number of nets */
+	int n_nets = 0;
+	for (int i = 0; i < pp->n_pins; i++)
+		n_nets = max(n_nets, pp->pins[i].net);
+
+	assert(n_nets > 0);
+
+	npm->n_nets = n_nets;
+
+	/* create size of per-net maps */
+	int *n_pins_for_net = calloc(n_nets + 1, sizeof(int));
+	for (net_t i = 0; i < pp->n_pins; i++) {
+		n_pins_for_net[pp->pins[i].net]++;
+	}
+
+	npm->n_pins_for_net = n_pins_for_net;
+
+	/* create per-net pin lists */
+	struct placed_pin **pins_for_net = calloc(n_nets + 1, sizeof(struct placed_pin *));
+	for (net_t i = 1; i < n_nets + 1; i++) {
+		pins_for_net[i] = calloc(n_pins_for_net[i], sizeof(struct placed_pin));
+	}
+
+	/* copy those placed pins into the map */
+	int *this_pins_for_net = calloc(n_nets + 1, sizeof(int));
+	for (int i = 0; i < pp->n_pins; i++) {
+		net_t j = pp->pins[i].net;
+		pins_for_net[j][this_pins_for_net[j]++] = pp->pins[i];
+		assert(this_pins_for_net[j] <= n_pins_for_net[j]);
+	}
+	free(this_pins_for_net);
+
+	npm->pins = pins_for_net;
+
+	return npm;
+}
+
+void free_net_pin_map(struct net_pin_map *npm)
+{
+	for (int i = 1; i < npm->n_nets + 1; i++)
+		free(npm->pins[i]);
+	free(npm->pins);
+	free(npm->n_pins_for_net);
+	free(npm);
+}
+
+/* based on a set of cell placements, build the list of pins
+ */
+struct pin_placements *placer_place_pins(struct cell_placements *cp)
+{
+	int pin_count = 0;
+	for (int i = 0; i < cp->n_placements; i++)
+		pin_count += cp->placements[i].cell->n_pins;
+
+	struct placed_pin *pins = calloc(pin_count, sizeof(struct placed_pin));
+
+	int k = 0;
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct placement pl = cp->placements[i];
+		struct logic_cell *c = pl.cell;
+
+		for (int j = 0; j < c->n_pins; j++) {
+			struct coordinate b = pl.placement;
+			struct coordinate p = c->pins[pl.turns][j].coordinate;
+			struct coordinate actual = {b.x + p.x, b.y + p.y, b.z + p.z};
+
+			struct placed_pin pin;
+			pin.coordinate = actual;
+			pin.cell = c;
+			pin.cell_pin = &(c->pins[pl.turns][j]);
+			pin.net = pl.nets[j];
+
+			pins[k++] = pin;
+		}
+	}
+
+	assert(k == pin_count);
+
+	struct pin_placements *pp = malloc(sizeof(struct pin_placements));
+	pp->n_pins = pin_count;
+	pp->pins = pins;
+
+	return pp;
+}
+
+void free_pin_placements(struct pin_placements *pp)
+{
+	free(pp->pins);
+	free(pp);
+}
+
 /* determine the length of wire needed to connect all points, using
  * the minimal spanning tree that covers the wires. it's not a perfect metric,
  * but it is a good enough estimate
@@ -359,63 +358,39 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 #define PENALTY_MALLOC_START 4
 static int compute_wire_length_penalty(struct cell_placements *cp)
 {
-	net_t i;
 	int penalty = 0;
-	struct coordinate **coords = calloc(sizeof(struct coordinate *), cp->n_nets + 1);
-	int *n_coords = calloc(sizeof(int), cp->n_nets + 1);
-	int *found = calloc(sizeof(int), cp->n_nets + 1);
 
-	for (i = 1; i < cp->n_nets + 1; i++) {
-		found[i] = 0;
-		n_coords[i] = PENALTY_MALLOC_START;
-		coords[i] = calloc(sizeof(struct coordinate), n_coords[i]);
-	}
-
-	/* add each coordinate to its net */
-	for (i = 0; i < cp->n_placements; i++) {
-		struct placement pl = cp->placements[i];
-		struct logic_cell *c = pl.cell;
-		for (int j = 0; j < c->n_pins; j++) {
-			net_t k = pl.nets[j];
-
-			struct coordinate b = pl.placement;
-			struct coordinate p = c->pins[pl.turns][j].coordinate;
-
-			struct coordinate actual = {b.x + p.x, b.y + p.y, b.z + p.z};
-			coords[k][found[k]++] = actual;
-
-			/* resize coords if too large */
-			if (found[k] >= n_coords[k]) {
-				n_coords[k] *= 2;
-				coords[k] = realloc(coords[k], sizeof(struct coordinate) * n_coords[k]);
-			}
-		}
-	}
+	/* map pins to nets */
+	struct pin_placements *pp = placer_place_pins(cp);
+	struct net_pin_map *npm = placer_create_net_pin_map(pp);
+	free_pin_placements(pp);
 
 	/* for each net, compute the constituent pin coordinates */
-	for (i = 1; i < cp->n_nets; i++) {
-		if (found[i] == 0 || found[i] == 1)
+	for (net_t i = 1; i < npm->n_nets; i++) {
+		int n_pins = npm->n_pins_for_net[i];
+		assert(n_pins >= 0);
+
+		if (n_pins == 0 || n_pins == 1)
 			continue;
 
-		if (found[i] == 2) {
-			penalty += distance_cityblock(coords[i][0], coords[i][1]);
+		if (n_pins == 2) {
+			penalty += distance_cityblock(npm->pins[i][0].coordinate, npm->pins[i][1].coordinate);
 			continue;
 		}
 
-		struct segments *mst = create_mst(coords[i], found[i]);
+		struct coordinate *coords = calloc(n_pins, sizeof(struct coordinate));
+		for (int j = 0; j < n_pins; j++)
+			coords[j] = npm->pins[i][j].coordinate;
+
+		struct segments *mst = create_mst(coords, n_pins);
+		free(coords);
 		for (int seg = 0; seg < mst->n_segments; seg++) {
 			int d = distance_cityblock(mst->segments[seg].start, mst->segments[seg].end);
 			penalty += d;
 		}
-		free_struct_segments(mst);
+		free_segments(mst);
 	}
-
-
-	free(found);
-	free(n_coords);
-	for (int i = 1; i < cp->n_nets + 1; i++)
-		free(coords[i]);
-	free(coords);
+	free_net_pin_map(npm);
 
 	return penalty;
 }

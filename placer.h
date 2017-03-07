@@ -4,20 +4,15 @@
 #include "blif.h"
 #include "cell.h"
 
+struct pin_placements {
+	int n_pins;
+	struct placed_pin *pins;
+};
+
 struct extraction {
 	struct dimensions dimensions;
 	block_t *blocks;
 	data_t *data;
-};
-
-struct segment {
-	struct coordinate start;
-	struct coordinate end;
-};
-
-struct segments {
-	struct segment *segments;
-	int n_segments;
 };
 
 struct placement {

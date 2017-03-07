@@ -534,6 +534,25 @@ error:
 	return 0;
 }
 
+/* rotate d by `turns` CCW turns */
+enum ordinal_direction dir_rot(enum ordinal_direction d, int turns)
+{
+	enum ordinal_direction a[] = {NORTH, WEST, SOUTH, EAST};
+
+	switch (d) {
+	case NORTH:
+		return a[turns % 4];
+	case WEST:
+		return a[(turns + 1) % 4];
+	case SOUTH:
+		return a[(turns + 2) % 4];
+	case EAST:
+		return a[(turns + 3) % 4];
+	default:
+		return NORTH;
+	}
+}
+
 /* for some blocks, rotations by 90 degrees change data */
 static data_t data_rot90(block_t b, data_t d)
 {
@@ -601,6 +620,7 @@ static void cell_rot90(struct logic_cell *cell, int i)
 		cell->pins[i][j].name = strdup(cell->pins[i][j].name);
 		cell->pins[i][j].coordinate.z = ol - 1 - ox;
 		cell->pins[i][j].coordinate.x = oz;
+		cell->pins[i][j].facing = dir_rot(cell->pins[i-1][j].facing, 1);
 	}
 }
 

@@ -1,6 +1,8 @@
 #ifndef __BLIF_H__
 #define __BLIF_H__
 
+#include <stdio.h>
+
 typedef unsigned int net_t;
 
 struct pin {

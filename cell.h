@@ -1,6 +1,8 @@
 #ifndef __CELL_H__
 #define __CELL_H__
 
+#include "blif.h"
+
 typedef unsigned char block_t;
 typedef unsigned char data_t;
 
@@ -18,6 +20,14 @@ struct dimensions {
 
 enum pin_direction { INPUT, OUTPUT };
 enum ordinal_direction { NORTH, EAST, SOUTH, WEST };
+
+struct placed_pin {
+	struct coordinate coordinate;
+
+	struct logic_cell *cell;
+	struct logic_cell_pin *cell_pin;
+	net_t net;
+};
 
 struct logic_cell_pin {
 	char *name;
