@@ -9,12 +9,6 @@ struct pin_placements {
 	struct placed_pin *pins;
 };
 
-struct extraction {
-	struct dimensions dimensions;
-	block_t *blocks;
-	data_t *data;
-};
-
 struct placement {
 	struct logic_cell *cell;
 	struct coordinate placement;
@@ -42,6 +36,9 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *,
 		struct dimensions *,
 		double,
 		unsigned int, unsigned int);
+
+struct cell_placements *copy_placements(struct cell_placements *);
+struct cell_placements *placements_displace(struct cell_placements *, struct coordinate disp);
 
 struct cell_placements *placer_initial_place(struct blif *, struct cell_library *);
 struct dimensions compute_placement_dimensions(struct cell_placements *);

@@ -58,7 +58,7 @@ int main(int argc, char **argv)
 		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
 	struct cell_placements *new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 1000, 100, 100);
-	print_cell_placements(new_placements);
+	// print_cell_placements(new_placements);
 
 /*
 	struct dimensions fd = compute_placement_dimensions(new_placements);

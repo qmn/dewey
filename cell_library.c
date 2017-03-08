@@ -594,8 +594,6 @@ static void cell_rot90(struct logic_cell *cell, int i)
 	cell->blocks[i] = calloc(ol * oh * ow, sizeof(block_t));
 	cell->data[i] = calloc(ol * oh * ow, sizeof(data_t));
 
-	printf("%s rot %d\n", cell->name, i);
-	
 	for (int y = 0; y < oh; y++) {
 		int by = y * ol * ow;
 		for (int oz = 0, nx = 0; oz < ow && nx < nl; oz++, nx++) {

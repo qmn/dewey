@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include "extract.h"
 #include "placer.h"
 #include "segment.h"
 
@@ -26,6 +27,12 @@ static int max(int a, int b)
 static int min(int a, int b)
 {
 	return a < b ? a : b;
+}
+
+static struct coordinate add_coordinates(struct coordinate a, struct coordinate b)
+{
+	struct coordinate c = {a.y + b.y, a.z + b.z, a.x + b.x};
+	return c;
 }
 
 /*
@@ -109,10 +116,11 @@ static enum placement_method generate(struct cell_placements *placements,
 	}
 }
 
+
 /*
  * Performs a deep copy of cell_placements.
  */
-static struct cell_placements *copy_placements(struct cell_placements *old_placements)
+struct cell_placements *copy_placements(struct cell_placements *old_placements)
 {
 	struct cell_placements *new_placements;
 	int i;
@@ -132,6 +140,18 @@ static struct cell_placements *copy_placements(struct cell_placements *old_place
 	}
 
 	return new_placements;
+}
+
+/* copies the cell placements and displaces them all by coordinate disp */
+struct cell_placements *placements_displace(struct cell_placements *cp, struct coordinate disp)
+{
+	struct cell_placements *new_cp = copy_placements(cp);
+
+	for (int i = 0; i < new_cp->n_placements; i++) {
+		new_cp->placements[i].placement = add_coordinates(new_cp->placements[i].placement, disp);
+	}
+
+	return new_cp;
 }
 
 void free_placements(struct cell_placements *placements)
@@ -298,12 +318,6 @@ void free_net_pin_map(struct net_pin_map *npm)
 	free(npm->pins);
 	free(npm->n_pins_for_net);
 	free(npm);
-}
-
-struct coordinate add_coordinates(struct coordinate a, struct coordinate b)
-{
-	struct coordinate c = {a.y + b.y, a.z + b.z, a.x + b.x};
-	return c;
 }
 
 /* based on a set of cell placements, build the list of pins
@@ -637,48 +651,6 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 	}
 
 	return placements;
-}
-
-void free_extraction(struct extraction *e)
-{
-	free(e->blocks);
-	free(e->data);
-	free(e);
-}
-
-/* produces a 3D array representing actual Minecraft block placements */
-struct extraction *extract_placements(struct cell_placements *cp)
-{
-	struct extraction *e = malloc(sizeof(struct extraction));
-	struct dimensions d = compute_placement_dimensions(cp);
-	e->dimensions = d;
-
-	int size = d.x * d.y * d.z;
-	e->blocks = calloc(size, sizeof(block_t));
-	e->data = calloc(size, sizeof(data_t));
-
-	for (int i = 0; i < cp->n_placements; i++) {
-		struct placement p = cp->placements[i];
-
-		struct coordinate c = p.placement;
-		struct logic_cell *lc = p.cell;
-		struct dimensions lcd = lc->dimensions[p.turns];
-
-		for (int y = 0; y < lcd.y; y++) {
-			for (int z = 0; z < lcd.z; z++) {
-				for (int x = 0; x < lcd.x; x++) {
-					int fd_off = (c.y + y) * d.z * d.x + (c.z + z) * d.x + (c.x + x);
-					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
-
-					assert(fd_off >= 0 && fd_off <= size);
-					e->blocks[fd_off] = lc->blocks[p.turns][b_off];
-					e->data[fd_off] = lc->data[p.turns][b_off];
-				}
-			}
-		}
-	}
-
-	return e;
 }
 
 void print_cell_placements(struct cell_placements *cp)
