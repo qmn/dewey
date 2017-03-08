@@ -248,12 +248,6 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 	return penalty;
 }
 
-struct net_pin_map {
-	int n_nets;
-	int *n_pins_for_net;
-	struct placed_pin **pins;
-};
-
 /* given a list of pin placements, generate a list collecting
  * pins based on the net they belong to */
 struct net_pin_map *placer_create_net_pin_map(struct pin_placements *pp)
@@ -306,6 +300,12 @@ void free_net_pin_map(struct net_pin_map *npm)
 	free(npm);
 }
 
+struct coordinate add_coordinates(struct coordinate a, struct coordinate b)
+{
+	struct coordinate c = {a.y + b.y, a.z + b.z, a.x + b.x};
+	return c;
+}
+
 /* based on a set of cell placements, build the list of pins
  */
 struct pin_placements *placer_place_pins(struct cell_placements *cp)
@@ -324,10 +324,9 @@ struct pin_placements *placer_place_pins(struct cell_placements *cp)
 		for (int j = 0; j < c->n_pins; j++) {
 			struct coordinate b = pl.placement;
 			struct coordinate p = c->pins[pl.turns][j].coordinate;
-			struct coordinate actual = {b.x + p.x, b.y + p.y, b.z + p.z};
 
 			struct placed_pin pin;
-			pin.coordinate = actual;
+			pin.coordinate = add_coordinates(b, p);
 			pin.cell = c;
 			pin.cell_pin = &(c->pins[pl.turns][j]);
 			pin.net = pl.nets[j];

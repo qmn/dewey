@@ -31,6 +31,13 @@ struct cell_placements {
 	int n_nets;
 };
 
+struct net_pin_map {
+	int n_nets;
+	int *n_pins_for_net;
+	struct placed_pin **pins;
+};
+
+
 struct cell_placements *simulated_annealing_placement(struct cell_placements *,
 		struct dimensions *,
 		double,
@@ -40,6 +47,12 @@ struct cell_placements *placer_initial_place(struct blif *, struct cell_library 
 struct dimensions compute_placement_dimensions(struct cell_placements *);
 
 void print_cell_placements(struct cell_placements *);
+
+struct pin_placements *placer_place_pins(struct cell_placements *);
+void free_pin_placements(struct pin_placements *);
+
+struct net_pin_map *placer_create_net_pin_map(struct pin_placements *);
+void free_net_pin_map(struct net_pin_map *);
 
 struct extraction *extract_placements(struct cell_placements *);
 void free_extraction(struct extraction *);

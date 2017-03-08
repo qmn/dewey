@@ -36,5 +36,7 @@ struct blif {
 
 struct blif *read_blif(FILE *);
 
+char *get_net_name(struct blif *, net_t);
+
 void free_blif(struct blif *);
 #endif /* __BLIF_H__ */

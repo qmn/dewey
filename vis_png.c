@@ -3,6 +3,7 @@
 #include <stdlib.h>
 #include <gd.h>
 
+#include "router.h"
 #include "vis_png.h"
 
 static struct texture_0_coord {
@@ -100,7 +101,29 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 	}
 }
 
-void vis_png_draw_placements(struct cell_placements *cp)
+struct extraction *extract(struct cell_placements *cp, struct routings *rt)
+{
+	struct extraction *e = extract_placements(cp);
+
+	if (!rt)
+		return e;
+
+	struct dimensions d = compute_placement_dimensions(cp);
+
+	for (net_t i = 1; i < rt->n_routed_nets; i++) {
+		for (int j = 0; j < rt->routed_nets[i].n_coords; j++) {
+			struct coordinate c = rt->routed_nets[i].coords[j];
+			if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
+				continue;
+			e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
+		}
+	}
+
+	return e;
+}
+
+
+void vis_png_draw_placements(struct cell_placements *cp, struct routings *rt)
 {
 	struct dimensions d = compute_placement_dimensions(cp);
 
@@ -119,7 +142,7 @@ void vis_png_draw_placements(struct cell_placements *cp)
 		return;
 	}
 
-	struct extraction *e = extract_placements(cp);
+	struct extraction *e = extract(cp, rt);
 	for (int y = 0; y < d.y; y++) {
 		for (int z = 0; z < d.z; z++) {
 			for (int x = 0; x < d.x; x++) {
