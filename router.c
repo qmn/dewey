@@ -59,6 +59,8 @@ struct routed_net *cityblock_route(net_t net, struct coordinate a, struct coordi
 		path[count++] = c;
 	}
 
+	assert(count == len);
+
 	struct routed_net *rn = malloc(sizeof(struct routed_net));
 	rn->net = net;
 	rn->n_coords = len;
@@ -87,7 +89,7 @@ struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t 
 	int n_pins = npm->n_pins_for_net[net];
 	struct routed_net *rn = malloc(sizeof(struct routed_net));
 	rn->net = net;
-	rn->n_coords = n_pins;
+	rn->n_coords = 0;
 	rn->coords = NULL;
 
 	if (n_pins == 0) {
@@ -101,6 +103,7 @@ struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t 
 #endif
 		struct coordinate *coords = malloc(sizeof(struct coordinate));
 		coords[0] = c;
+		rn->n_coords = 1;
 		rn->coords = coords;
 	} else if (n_pins == 2) {
 		struct coordinate a = npm->pins[net][0].coordinate;
@@ -178,44 +181,45 @@ struct routings *copy_routings(struct routings *old_rt)
 {
 	struct routings *new_rt = malloc(sizeof(struct routings));
 	new_rt->n_routed_nets = old_rt->n_routed_nets;
-	new_rt->routed_nets = malloc(new_rt->n_routed_nets * sizeof(struct routed_net));
-	memcpy(new_rt->routed_nets, old_rt->routed_nets, new_rt->n_routed_nets * sizeof(struct routed_net));
+	new_rt->routed_nets = malloc((new_rt->n_routed_nets + 1) * sizeof(struct routed_net));
+	memcpy(new_rt->routed_nets, old_rt->routed_nets, (new_rt->n_routed_nets + 1) * sizeof(struct routed_net));
 
-	for (net_t i = 1; i < new_rt->n_routed_nets; i++) {
+	for (net_t i = 1; i < new_rt->n_routed_nets + 1; i++) {
 		struct routed_net *rn = &(new_rt->routed_nets[i]);
+		rn->n_coords = old_rt->routed_nets[i].n_coords;
 		rn->coords = malloc(rn->n_coords * sizeof(struct coordinate));
 		memcpy(rn->coords, old_rt->routed_nets[i].coords, rn->n_coords * sizeof(struct coordinate));
-	}
-
-	return new_rt;
-}
-
-struct routings *routings_displace(struct routings *rt, struct coordinate disp)
-{
-	struct routings *new_rt = copy_routings(rt);
-	for (net_t i = 1; i < new_rt->n_routed_nets; i++) {
-		struct routed_net *rn = &(new_rt->routed_nets[i]);
 		for (int j = 0; j < rn->n_coords; j++)
-			rn->coords[j] = add_coordinates(rn->coords[j], disp);
+			printf("[copy_routings] (%d, %d, %d)\n", rn->coords[j].y, rn->coords[j].z, rn->coords[j].x);
 	}
 
 	return new_rt;
 }
 
-/* determine the top-left most point of routings */
-struct coordinate top_left_most_point(struct routings *rt)
+struct dimensions compute_routings_dimensions(struct routings *rt)
 {
-	struct coordinate c = {0, 0, 0};
-	for (net_t i = 1; i < rt->n_routed_nets; i++) {
-		for (int j = 0; j < rt->routed_nets[i].n_coords; j++) {
-			struct coordinate d = rt->routed_nets[i].coords[j];
-			c.x = min(c.x, d.x);
-			c.y = min(c.y, d.y);
-			c.z = min(c.z, d.z);
+	struct dimensions d = {0, 0, 0};
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
+		struct routed_net rn = rt->routed_nets[i];
+		for (int j = 0; j < rn.n_coords; j++) {
+			struct coordinate c = rn.coords[j];
+			printf("[crd] y=%d z=%d x=%d\n", c.y, c.z, c.x);
+			d.y = max(d.y, c.y + 1);
+			d.z = max(d.z, c.z + 1);
+			d.x = max(d.x, c.x + 1);
 		}
 	}
 
-	return c;
+	return d;
+}
+
+void routings_displace(struct routings *rt, struct coordinate disp)
+{
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
+		struct routed_net *rn = &(rt->routed_nets[i]);
+		for (int j = 0; j < rn->n_coords; j++)
+			rn->coords[j] = add_coordinates(rn->coords[j], disp);
+	}
 }
 
 void free_routings(struct routings *rt)

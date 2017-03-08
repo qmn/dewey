@@ -1,22 +1,11 @@
 #ifndef __CELL_H__
 #define __CELL_H__
 
+#include "coord.h"
 #include "blif.h"
 
 typedef unsigned char block_t;
 typedef unsigned char data_t;
-
-struct coordinate {
-	int y;
-	int z;
-	int x;
-};
-
-struct dimensions {
-	unsigned int y;
-	unsigned int z;
-	unsigned int x;
-};
 
 enum pin_direction { INPUT, OUTPUT };
 enum ordinal_direction { NORTH, EAST, SOUTH, WEST };

@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include "coord.h"
 #include "extract.h"
 #include "placer.h"
 #include "segment.h"
@@ -27,12 +28,6 @@ static int max(int a, int b)
 static int min(int a, int b)
 {
 	return a < b ? a : b;
-}
-
-static struct coordinate add_coordinates(struct coordinate a, struct coordinate b)
-{
-	struct coordinate c = {a.y + b.y, a.z + b.z, a.x + b.x};
-	return c;
 }
 
 /*
@@ -143,18 +138,14 @@ struct cell_placements *copy_placements(struct cell_placements *old_placements)
 }
 
 /* copies the cell placements and displaces them all by coordinate disp */
-struct cell_placements *placements_displace(struct cell_placements *cp, struct coordinate disp)
+void placements_displace(struct cell_placements *cp, struct coordinate disp)
 {
-	struct cell_placements *new_cp = copy_placements(cp);
-
-	for (int i = 0; i < new_cp->n_placements; i++) {
-		new_cp->placements[i].placement = add_coordinates(new_cp->placements[i].placement, disp);
+	for (int i = 0; i < cp->n_placements; i++) {
+		cp->placements[i].placement = coordinate_add(cp->placements[i].placement, disp);
 	}
-
-	return new_cp;
 }
 
-void free_placements(struct cell_placements *placements)
+void free_cell_placements(struct cell_placements *placements)
 {
 	free(placements->placements);
 	free(placements);
@@ -181,29 +172,6 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 	}
 
 	return d;
-}
-
-/* move the entire design so that all coordinates are non-negative */
-void recenter(struct cell_placements *cp)
-{
-	int i;
-	struct coordinate d;
-
-	for (i = 0; i < cp->n_placements; i++) {
-		struct placement p = cp->placements[i];
-		struct coordinate c = p.placement;
-
-		d.x = (i == 0) ? c.x : min(c.x, d.x);
-		d.y = (i == 0) ? c.y : min(c.y, d.y);
-		d.z = (i == 0) ? c.z : min(c.z, d.z);
-	}
-
-	for (i = 0; i < cp->n_placements; i++) {
-		struct placement *p = &cp->placements[i];
-		p->placement.x -= d.x;
-		p->placement.y -= d.y;
-		p->placement.z -= d.z;
-	}
 }
 
 static char *overlap_tmp = NULL;
@@ -340,7 +308,7 @@ struct pin_placements *placer_place_pins(struct cell_placements *cp)
 			struct coordinate p = c->pins[pl.turns][j].coordinate;
 
 			struct placed_pin pin;
-			pin.coordinate = add_coordinates(b, p);
+			pin.coordinate = coordinate_add(b, p);
 			pin.cell = c;
 			pin.cell_pin = &(c->pins[pl.turns][j]);
 			pin.net = pl.nets[j];
@@ -513,7 +481,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 
 	int match_iterations = 0;
 	int match_score = old_score;
-	int stop_iterations = 3;
+	int stop_iterations = 5;
 
 	for (i = 0; i < iterations || match_iterations < stop_iterations || overlap_penalty > 0; i++) {
 #ifdef PLACER_GENERATION_DEBUG
@@ -532,7 +500,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 			printf("[placer] made a copy\n");
 #endif
 			method_used = generate(new_placements, &wanted, t, t_0, method);
-			recenter(new_placements);
+			recenter(new_placements, NULL);
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generated a new\n");
 #endif
@@ -551,7 +519,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 				 * accept this new placement, free the old
 				 * placements, and replace it with the new ones
 				 */
-				free_placements(best_placements);
+				free_cell_placements(best_placements);
 				best_placements = new_placements;
 				taken_score = new_score;
 				if (method_used == REORIENT)
@@ -561,22 +529,23 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 				printf("[placer] placer rejects\n");
 #endif
 				/* reject the new placement */
-				free_placements(new_placements);
+				free_cell_placements(new_placements);
 				taken_score = old_score;
 				if (method_used == DISPLACE)
 					method = REORIENT;
 			}
 
-			if (taken_score == match_score) {
-				match_iterations++;
-			} else {
-				match_score = taken_score;
-				match_iterations = 0;
-			}
-
-			old_score = taken_score;
 		}
 		// printf("[placer] T = %4.2f\n", t);
+
+		if (taken_score == match_score) {
+			match_iterations++;
+		} else {
+			match_score = taken_score;
+			match_iterations = 0;
+		}
+
+		old_score = taken_score;
 
 		printf("\rIteration: %4d, Score: %6u (overlap penalty: %6u), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, t);
 		fflush(stdout);
@@ -678,3 +647,4 @@ struct cell_placements *placer_initial_place(struct blif *blif, struct cell_libr
 
 	return cp;
 }
+

@@ -6,17 +6,82 @@
 #include "placer.h"
 #include "router.h"
 
-/* produces a 3D array representing actual Minecraft block placements */
-struct extraction *extract_placements(struct cell_placements *cp)
+static struct coordinate placements_top_left_most_point(struct cell_placements *cp)
 {
+	/* select the first placement for a baseline point */
+	struct coordinate d = cp->placements[0].placement;
+
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct coordinate c = cp->placements[i].placement;
+
+		d = coordinate_piecewise_min(c, d);
+	}
+
+	return d;
+}
+
+/* determine the top-left most point of routings */
+static struct coordinate routings_top_left_most_point(struct routings *rt)
+{
+	/* select a baseline point */
+	struct coordinate d = rt->routed_nets[1].coords[0];
+
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
+		for (int j = 0; j < rt->routed_nets[i].n_coords; j++) {
+			struct coordinate c = rt->routed_nets[i].coords[j];
+			d = coordinate_piecewise_min(c, d);
+		}
+	}
+
+	return d;
+}
+
+/* recenter_routings requires the placements the routings were based on */
+/*
+void recenter_routings(struct cell_placements *cp, struct routings *rt)
+{
+	struct coordinate disp = placements_top_left_most_point(cp);
+	routings_displace(rt, coordinate_neg(disp));
+}
+*/
+
+/* move the entire design so that all coordinates are non-negative:
+ * if routings are provided, consider any possible out-of-bounds routing as well,
+ * and recenter the routings as well. */
+void recenter(struct cell_placements *cp, struct routings *rt)
+{
+	struct coordinate disp = placements_top_left_most_point(cp);
+	if (rt)
+		disp = coordinate_piecewise_min(disp, routings_top_left_most_point(rt));
+
+	placements_displace(cp, coordinate_neg(disp));
+
+	if (rt)
+		routings_displace(rt, coordinate_neg(disp));
+}
+
+struct extraction *extract(struct cell_placements *cp, struct routings *rt)
+{
+	struct cell_placements *ncp = copy_placements(cp);
+	struct routings *nrt = rt ? copy_routings(rt) : NULL;
+	recenter(ncp, nrt);
+
+	struct dimensions cpd = compute_placement_dimensions(ncp);
+	struct dimensions rtd = {0, 0, 0};
+	if (nrt)
+		rtd = compute_routings_dimensions(rt);
+	struct dimensions d = dimensions_piecewise_max(cpd, rtd);
+	assert(d.x > 0 && d.y > 0 && d.z > 0);
+	printf("[extract] extraction dimensions: h=%d w=%d l=%d\n", d.y, d.z, d.x);
+
 	struct extraction *e = malloc(sizeof(struct extraction));
-	struct dimensions d = compute_placement_dimensions(cp);
 	e->dimensions = d;
 
 	int size = d.x * d.y * d.z;
 	e->blocks = calloc(size, sizeof(block_t));
 	e->data = calloc(size, sizeof(data_t));
 
+	/* place blocks resulting from placement in image */
 	for (int i = 0; i < cp->n_placements; i++) {
 		struct placement p = cp->placements[i];
 
@@ -38,19 +103,13 @@ struct extraction *extract_placements(struct cell_placements *cp)
 		}
 	}
 
-	return e;
-}
+	free_cell_placements(ncp);
 
-struct extraction *extract(struct cell_placements *cp, struct routings *rt)
-{
-	struct extraction *e = extract_placements(cp);
-
+	/* if that's all, return, otherwise proceed to add routings */
 	if (!rt)
 		return e;
 
-	struct dimensions d = compute_placement_dimensions(cp);
-
-	for (net_t i = 1; i < rt->n_routed_nets; i++) {
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (int j = 0; j < rt->routed_nets[i].n_coords; j++) {
 			struct coordinate c = rt->routed_nets[i].coords[j];
 			if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
@@ -58,6 +117,8 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 			e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
 		}
 	}
+
+	free_routings(nrt);
 
 	return e;
 }
