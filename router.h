@@ -2,6 +2,7 @@
 #define __ROUTER_H__
 
 #include "coord.h"
+#include "segment.h"
 #include "blif.h"
 #include "placer.h"
 
@@ -10,10 +11,24 @@ struct routings {
 	struct routed_net *routed_nets;
 };
 
-struct routed_net {
-	net_t net;
+struct routed_segment {
+	struct segment seg;
+
 	int n_coords;
 	struct coordinate *coords;
+};
+
+struct routed_net {
+	net_t net;
+
+	/* pins connected by this net;
+	 * pins are references to a struct placed_pins
+	 */
+	int n_pins;
+	struct placed_pin *pins;
+
+	int n_routed_segments;
+	struct routed_segment *routed_segments;
 };
 
 struct routings *route(struct blif *, struct cell_placements *);
