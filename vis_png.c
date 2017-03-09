@@ -1,7 +1,9 @@
 #include <png.h>
+#include <strings.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <gd.h>
+#include <gdfonts.h>
 
 #include "extract.h"
 #include "router.h"
@@ -22,7 +24,8 @@ static struct texture_0_coord {
 	{149, 1, 6},
 	{152, 18, 10},
 	{5, 16, 4},
-	{69, 10, 13}
+	{69, 10, 13},
+	{123, 18, 15}
 };
 
 static gdImagePtr redstone_mask(gdImagePtr textures_0)
@@ -102,7 +105,7 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 	}
 }
 
-void vis_png_draw_placements(struct cell_placements *cp, struct routings *rt)
+void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, struct routings *rt)
 {
 	struct dimensions d = compute_placement_dimensions(cp);
 
@@ -113,6 +116,8 @@ void vis_png_draw_placements(struct cell_placements *cp, struct routings *rt)
 
 	gdImageSaveAlpha(im, 1);
 	int transparent = gdImageColorAllocateAlpha(im, 0xff, 0xff, 0xff, 0x7f);
+	int black = gdImageColorAllocateAlpha(im, 0, 0, 0, 0);
+	int white = gdImageColorAllocateAlpha(im, 0xff, 0xff, 0xff, 0);
 	gdImageFill(im, 0, 0, transparent);
 
 	gdImagePtr textures_0 = load_textures_0();
@@ -121,6 +126,7 @@ void vis_png_draw_placements(struct cell_placements *cp, struct routings *rt)
 		return;
 	}
 
+	/* draw blocks */
 	struct extraction *e = extract(cp, rt);
 	for (int y = 0; y < d.y; y++) {
 		for (int z = 0; z < d.z; z++) {
@@ -132,6 +138,19 @@ void vis_png_draw_placements(struct cell_placements *cp, struct routings *rt)
 		}
 	}
 	free_extraction(e);
+
+	/* draw input/output pin labels */
+	for (int i = 0; i < cp->n_placements; i++) {
+		if (strcmp("input_pin", cp->placements[i].cell->name) == 0 ||
+		    strcmp("output_pin", cp->placements[i].cell->name) == 0) {
+			struct coordinate c = cp->placements[i].placement;
+			net_t n = cp->placements[i].nets[0];
+			unsigned char *s = (unsigned char *)get_net_name(blif, n);
+			gdFontPtr font = gdFontGetSmall();
+			gdImageString(im, font, c.x * 16 + 8, c.z * 16 + 4, s, white);
+			gdImageString(im, font, c.x * 16 + 7, c.z * 16 + 3, s, black);
+		}
+	}
 
 	free_textures_0(textures_0);
 

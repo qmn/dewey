@@ -77,7 +77,7 @@ int main(int argc, char **argv)
 
 	struct routings *routings = route(blif, new_placements);
 
-	vis_png_draw_placements(new_placements, NULL);
+	vis_png_draw_placements(blif, new_placements, NULL);
 
         free_blif(blif);
 	free_cell_library(cl);

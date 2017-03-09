@@ -4,6 +4,7 @@
 #include <string.h>
 #include <assert.h>
 
+#include "blif.h"
 #include "coord.h"
 #include "extract.h"
 #include "placer.h"
@@ -77,11 +78,9 @@ static enum placement_method generate(struct cell_placements *placements,
 		cell_a->placement = cell_b->placement;
 		cell_b->placement = tmp;
 
-/*
-		printf("[placer] interchange %d (%d, %d, %d) with %d (%d, %d, %d)\n",
-			cell_a_idx, cell_a->placement.y, cell_a->placement.z, cell_a->placement.x,
-			cell_b_idx, cell_b->placement.y, cell_b->placement.z, cell_b->placement.x);
-*/
+		// printf("[placer] interchange %d (%d, %d, %d) with %d (%d, %d, %d)\n",
+		//	cell_a_idx, cell_a->placement.y, cell_a->placement.z, cell_a->placement.x,
+		//	cell_b_idx, cell_b->placement.y, cell_b->placement.z, cell_b->placement.x);
 
 		return INTERCHANGE;
 	} else if (method == DISPLACE) {
@@ -577,6 +576,22 @@ static struct logic_cell *map_cell_to_library(struct blif_cell *blif_cell, struc
 	return NULL;
 }
 
+static struct logic_cell *get_input_pin(struct cell_library *cl)
+{
+	struct blif_cell input_cell = {"input_pin", 0, NULL};
+	struct logic_cell *lc = map_cell_to_library(&input_cell, cl);
+	assert(lc);
+	return lc;
+}
+
+static struct logic_cell *get_output_pin(struct cell_library *cl)
+{
+	struct blif_cell output_cell = {"output_pin", 0, NULL};
+	struct logic_cell *lc = map_cell_to_library(&output_cell, cl);
+	assert(lc);
+	return lc;
+}
+
 /* for each cell in the blif, map it to a cell in the cell library,
  * and allocate struct cell_placements, but don't make any placements */
 static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struct cell_library *cl)
@@ -585,12 +600,32 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 	int i;
 
 	placements = malloc(sizeof(struct cell_placements));
-	placements->n_placements = blif->n_cells;
+	placements->n_placements = blif->n_inputs + blif->n_cells;
 	placements->n_nets = blif->n_nets;
 
 	placements->placements = malloc(sizeof(struct placement) * placements->n_placements);
+	int cell_count = 0;
 
-	/* for now, only place cells from the blif -- no inputs or outputs */
+	struct logic_cell *input_pin = get_input_pin(cl);
+	struct logic_cell *output_pin = get_output_pin(cl);
+	/* place inputs */
+	for (i = 0; i < blif->n_inputs; i++) {
+		struct coordinate c = {0, 0, 0};
+		net_t *nets = malloc(sizeof(net_t));
+		nets[0] = blif->inputs[i];
+		struct placement p = {input_pin, c, 0, nets};
+		placements->placements[cell_count++] = p;
+	}
+
+	for (i = 0; i < blif->n_outputs; i++) {
+		struct coordinate c = {0, 0, 0};
+		net_t *nets = malloc(sizeof(net_t));
+		nets[0] = blif->outputs[i];
+		struct placement p = {output_pin, c, 0, nets};
+		placements->placements[cell_count++] = p;
+	}
+
+	/* place cells */
 	for (i = 0; i < blif->n_cells; i++) {
 		// printf("[placer] cell %d\n", i);
 		struct blif_cell *c = blif->cells[i];
@@ -616,7 +651,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 
 		p.turns = 0;
 
-		placements->placements[i] = p;
+		placements->placements[cell_count++] = p;
 	}
 
 	return placements;

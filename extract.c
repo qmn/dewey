@@ -38,15 +38,6 @@ static struct coordinate routings_top_left_most_point(struct routings *rt)
 	return d;
 }
 
-/* recenter_routings requires the placements the routings were based on */
-/*
-void recenter_routings(struct cell_placements *cp, struct routings *rt)
-{
-	struct coordinate disp = placements_top_left_most_point(cp);
-	routings_displace(rt, coordinate_neg(disp));
-}
-*/
-
 /* move the entire design so that all coordinates are non-negative:
  * if routings are provided, consider any possible out-of-bounds routing as well,
  * and recenter the routings as well. */
