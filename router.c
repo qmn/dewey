@@ -274,6 +274,8 @@ static struct dimensions usage_dimensions;
 static int usage_size = 0;
 static int usage_xz_margin = 0;
 
+static unsigned char *violation_matrix = NULL;
+
 static int in_usage_bounds(struct coordinate c)
 {
 	return c.x >= 0 && c.x < usage_dimensions.x &&
@@ -285,6 +287,26 @@ static int usage_idx(struct coordinate c)
 {
 	return c.y * usage_dimensions.z * usage_dimensions.x + (c.z + usage_xz_margin) * usage_dimensions.x + (c.x + usage_xz_margin);
 }
+
+/*
+static void create_violation_matrix()
+{
+	violation_matrix = realloc(violation_matrix, usage_size * sizeof(unsigned char));
+	memset(violation_matrix, 0, usage_size * sizeof(unsigned char));
+
+	for (int y = 0; y < usage_dimensions.y; y++)
+		for (int z = 0; z < usage_dimensions.z; z++)
+			for (int x = 0; x < usage_dimensions.x; x++)
+				for (int j = 0; j < sizeof(check_offsets) / sizeof(struct coordinate); j++) {
+					struct coordinate base = {y, z, x};
+					struct coordinate off = check_offsets[j];
+					struct coordinate c = coordinate_add(base, off);
+
+					if (in_usage_bounds(c))
+						violation_matrix[usage_idx(c)] |= 1;
+				}
+}
+*/
 
 static void create_usage_matrix(struct cell_placements *cp, struct routings *rt, int xz_margin)
 {
@@ -304,7 +326,9 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 	usage_size = d.x * d.y * d.z;
 
 	usage_matrix = realloc(usage_matrix, usage_size * sizeof(unsigned char));
+	violation_matrix = realloc(violation_matrix, usage_size * sizeof(unsigned char));
 	memset(usage_matrix, 0, usage_size * sizeof(unsigned char));
+	memset(violation_matrix, 0, usage_size * sizeof(unsigned char));
 
 	/* placements */
 	for (int i = 0; i < cp->n_placements; i++) {
@@ -318,12 +342,18 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 
 		for (int y = c.y; y < cell_y; y++) {
 			int by = y * d.z * d.x;
-			for (int z = max(0, c.z - 1); z < min(cell_z, d.z + 1); z++) {
+			for (int z = max(0, c.z - 1); z < min(d.z, cell_z); z++) {
 				int bz = z * d.x;
-				for (int x = max(0, c.x - 1); x < min(cell_x, d.x + 1); x++) {
+				for (int x = max(0, c.x - 1); x < min(d.x, cell_x); x++) {
 					int idx = by + bz + x;
-					assert(x >= 0 && x < usage_size);
-					usage_matrix[idx]++;
+
+					// only update usage_matrix within the cell bounds
+					if (z >= c.z && z < cell_z && x >= c.x && x < cell_x)
+						usage_matrix[idx]++;
+
+					// only update violation_matrix within matrix bounds
+					if (idx >= 0 && idx < usage_size)
+						violation_matrix[idx] = 1;
 				}
 			}
 		}
@@ -333,13 +363,20 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
 			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++) {
+				// here
 				struct coordinate c = rt->routed_nets[i].routed_segments[j].coords[k];
-				for (int l = 0; l < sizeof(check_offsets) / sizeof(struct coordinate); l++) {
-					struct coordinate c_off = check_offsets[l];
-					struct coordinate off = coordinate_add(c, c_off);
-					if (!in_usage_bounds(off))
-						continue;
-					usage_matrix[usage_idx(off)]++;
+				usage_matrix[usage_idx(c)]++;
+
+				// below
+				c.y--;
+				if (in_usage_bounds(c))
+					usage_matrix[usage_idx(c)]++;
+
+				// violation matrix calculation
+				for (int m = 0; m < sizeof(check_offsets) / sizeof(struct coordinate); m++) {
+					struct coordinate cc = coordinate_add(c, check_offsets[m]);
+					if (in_usage_bounds(cc))
+						violation_matrix[usage_idx(cc)] = 1;
 				}
 			}
 		}
@@ -412,7 +449,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 
 		for (int i = 0; i < sizeof(movement_offsets) / sizeof(struct coordinate); i++) {
 			struct coordinate cc = coordinate_add(c, movement_offsets[i]);
-			printf("[maze_route] heap_size = %d, visiting (%d, %d, %d) cost = %u\n", heap_count, cc.y, cc.z, cc.x, heap[heap_count].cost);
+			// printf("[maze_route] heap_size = %d, visiting (%d, %d, %d) cost = %u\n", heap_count, cc.y, cc.z, cc.x, heap[heap_count].cost);
 
 			// out of bounds?
 			if (!in_usage_bounds(cc))
@@ -423,9 +460,9 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 				continue;
 
 			// set new cost
-			unsigned int cost_delta = usage_matrix[usage_idx(cc)] ? violation_cost : movement_cost;
+			unsigned int cost_delta = violation_matrix[usage_idx(cc)] ? violation_cost : movement_cost;
 			unsigned int new_cost = cost[usage_idx(c)] + cost_delta;
-			printf("[maze_route] new_cost is %u\n", new_cost);
+			// printf("[maze_route] new_cost is %u\n", new_cost);
 
 			// see if this new path is more advantageous
 			if (new_cost < cost[usage_idx(cc)]) {
@@ -436,7 +473,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 			struct cost_coord next = {new_cost, cc};
 			heap[heap_count++] = next;
 			if (heap_count >= heap_size) {
-				printf("[maze_route] doubling heap from %d\n", heap_size);
+				// printf("[maze_route] doubling heap from %d\n", heap_size);
 				heap_size *= 2;
 				heap = realloc(heap, heap_size * sizeof(struct cost_coord));
 			}
@@ -446,8 +483,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	}
 
 	struct coordinate current = rseg->seg.end;
-	if (bt[usage_idx(current)] != BT_NONE)
-		printf("\nsuccess!\n");
+	assert(bt[usage_idx(current)] != BT_NONE);
 
 	int n_coords = 0;
 	int coords_size = 4;
@@ -513,23 +549,9 @@ static int count_routed_segment_violations(struct routed_segment *rseg)
 
 	assert(usage_matrix);
 	/* for each */
-	struct coordinate *prev = NULL;
-	struct coordinate *next = NULL;
 	for (int i = 0; i < rseg->n_coords; i++) {
-		prev = i == 0 ? NULL : &rseg->coords[i-1];
-		next = i == rseg->n_coords - 1 ? NULL : &rseg->coords[i+1];
-
-		for (int j = 0; j < sizeof(check_offsets) / sizeof(struct coordinate); j++) {
-			struct coordinate check_coord = coordinate_add(rseg->coords[i], check_offsets[j]);
-			if (prev && coordinate_equal(check_coord, *prev))
-				continue;
-
-			if (next && coordinate_equal(check_coord, *next))
-				continue;
-
-			if (in_usage_bounds(check_coord) && usage_matrix[usage_idx(check_coord)] > 1)
-				score++;
-		}
+		if (violation_matrix[usage_idx(rseg->coords[i])])
+			score++;
 	}
 
 	/* re-add self to usage matrix */
@@ -594,14 +616,13 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 		}
 	}
 
-/*
 	struct routed_segment *rseg = &rt->routed_nets[1].routed_segments[0];
 	maze_reroute_segment(cp, rt, rseg);
 
 	create_usage_matrix(cp, rt, 0);
 	int score = score_routed_segment(rseg);
+	print_routed_segment(rseg);
 	printf("[router] new score: %d\n", score);
-*/
 
 	free_pin_placements(pp);
 	free_net_pin_map(npm);
