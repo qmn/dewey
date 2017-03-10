@@ -40,6 +40,11 @@ struct coordinate coordinate_piecewise_max(struct coordinate a, struct coordinat
 	return c;
 }
 
+int coordinate_equal(struct coordinate a, struct coordinate b)
+{
+	return a.y == b.y && a.z == b.z && a.x == b.x;
+}
+
 struct dimensions dimensions_piecewise_max(struct dimensions a, struct dimensions b)
 {
 	struct dimensions d = {max(a.y, b.y), max(a.z, b.z), max(a.x, b.x)};

@@ -406,11 +406,17 @@ static int compute_out_of_bounds_penalty(struct cell_placements *placements, str
 	return penalty;
 }
 
+static int compute_squareness_penalty(struct cell_placements *cp)
+{
+	struct dimensions d = compute_placement_dimensions(cp);
+	return max(d.x, d.z) * max(d.x, d.z) * d.y;
+}
+
 /* computes the area required to implement this design */
 static int compute_design_size_penalty(struct cell_placements *placements)
 {
 	struct dimensions d = compute_placement_dimensions(placements);
-	return d.x * d.y * d.z;
+	return d.x * d.z;
 }
 
 // #define PLACER_SCORE_DEBUG
@@ -422,10 +428,11 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 	int wire_length = compute_wire_length_penalty(placements);
 	int bounds = compute_out_of_bounds_penalty(placements, boundary);
 	int design_size = compute_design_size_penalty(placements);
+	int squareness = 0;// compute_squareness_penalty(placements);
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d\n", overlap, wire_length, bounds, design_size);
 #endif
-	return (overlap * overlap) + wire_length + bounds + design_size;
+	return (overlap * overlap) + wire_length + bounds + design_size + squareness;
 }
 
 static int accept(int new_score, int old_score, double t)
@@ -600,7 +607,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 	int i;
 
 	placements = malloc(sizeof(struct cell_placements));
-	placements->n_placements = blif->n_inputs + blif->n_cells;
+	placements->n_placements = blif->n_inputs + blif->n_cells + blif->n_outputs;
 	placements->n_nets = blif->n_nets;
 
 	placements->placements = malloc(sizeof(struct placement) * placements->n_placements);

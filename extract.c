@@ -6,7 +6,7 @@
 #include "placer.h"
 #include "router.h"
 
-static struct coordinate placements_top_left_most_point(struct cell_placements *cp)
+struct coordinate placements_top_left_most_point(struct cell_placements *cp)
 {
 	/* select the first placement for a baseline point */
 	struct coordinate d = cp->placements[0].placement;
@@ -21,16 +21,19 @@ static struct coordinate placements_top_left_most_point(struct cell_placements *
 }
 
 /* determine the top-left most point of routings */
-static struct coordinate routings_top_left_most_point(struct routings *rt)
+struct coordinate routings_top_left_most_point(struct routings *rt)
 {
-	/* select a baseline point */
-	struct coordinate d = rt->routed_nets[1].routed_segments[0].coords[0];
+	int found = 0;
+	struct coordinate d;
 
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
 			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++) {
 				struct coordinate c = rt->routed_nets[i].routed_segments[j].coords[k];
-				d = coordinate_piecewise_min(c, d);
+				if (!found)
+					d = c;
+				else
+					d = coordinate_piecewise_min(c, d);
 			}
 		}
 	}

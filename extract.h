@@ -12,7 +12,9 @@ struct extraction {
 	data_t *data;
 };
 
-// void recenter_placements(struct cell_placements *);
+struct coordinate placements_top_left_most_point(struct cell_placements *);
+struct coordinate routings_top_left_most_point(struct routings *);
+
 void recenter(struct cell_placements *, struct routings *);
 
 struct extraction *extract_placements(struct cell_placements *);
