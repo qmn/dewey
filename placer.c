@@ -173,6 +173,7 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 	return d;
 }
 
+#define OVERLAP_MARGIN 2
 static char *overlap_tmp = NULL;
 static int overlap_tmp_size = 0;
 static int overlap_penalty = 0;
@@ -219,9 +220,9 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 		/* if another cell is there, increase the penalty */
 		for (int y = c.y; y < cell_y; y++) {
 			int by = y * d.z * d.x;
-			for (int z = max(0, c.z - 1); z < min(d.z, cell_z + 1); z++) {
+			for (int z = max(0, c.z - OVERLAP_MARGIN); z < min(d.z, cell_z + OVERLAP_MARGIN); z++) {
 				int bz = z * d.x;
-				for (int x = max(0, c.x - 1); x < min(d.x, cell_x + 1); x++) {
+				for (int x = max(0, c.x - OVERLAP_MARGIN); x < min(d.x, cell_x + OVERLAP_MARGIN); x++) {
 					// printf("[compute_overlap_penalty] y=%d z=%d x=%d\n", y, z, x);
 					if (overlap_tmp[by + bz + x]++)
 						penalty += 1;

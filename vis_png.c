@@ -107,7 +107,7 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 
 void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, struct routings *rt)
 {
-	struct dimensions d = compute_placement_dimensions(cp);
+	struct dimensions d = dimensions_piecewise_max(compute_placement_dimensions(cp), compute_routings_dimensions(rt));
 
 	int img_width = d.x * 16;
 	int img_height = d.z * 16;

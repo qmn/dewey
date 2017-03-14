@@ -3,6 +3,7 @@
 #include <string.h>
 #include <errno.h>
 
+#include "extract.h"
 #include "blif.h"
 #include "placer.h"
 #include "router.h"
@@ -54,11 +55,15 @@ int main(int argc, char **argv)
 	struct dimensions initial_dimensions = compute_placement_dimensions(initial_placement);
 	print_cell_placements(initial_placement);
 
-	printf("[dewey] dimensions: {x: %d, y: %d, z: %d}\n",
+	printf("[dewey] intial dimensions: {x: %d, y: %d, z: %d}\n",
 		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
 	struct cell_placements *new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 100, 100, 100);
 	// print_cell_placements(new_placements);
+
+	struct dimensions placement_dimensions = compute_placement_dimensions(new_placements);
+	printf("[dewey] placement dimensions: {x: %d, y: %d, z: %d}\n",
+		placement_dimensions.x, placement_dimensions.y, placement_dimensions.z);
 
 /*
 	struct dimensions fd = compute_placement_dimensions(new_placements);
@@ -76,6 +81,8 @@ int main(int argc, char **argv)
 */
 
 	struct routings *routings = route(blif, new_placements);
+
+	recenter(new_placements, routings);
 
 	vis_png_draw_placements(blif, new_placements, routings);
 
