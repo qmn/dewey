@@ -4,6 +4,7 @@
 #include <stdlib.h>
 #include <gd.h>
 #include <gdfonts.h>
+#include <assert.h>
 
 #include "extract.h"
 #include "router.h"
@@ -105,12 +106,20 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 	}
 }
 
+#define ARBITRARY_LIMIT 1000
+
 void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, struct routings *rt)
 {
-	struct dimensions d = dimensions_piecewise_max(compute_placement_dimensions(cp), compute_routings_dimensions(rt));
+	struct dimensions dcp = compute_placement_dimensions(cp);
+	struct dimensions drt = compute_routings_dimensions(rt);
+	struct dimensions d = dimensions_piecewise_max(dcp, drt);
+	printf("dcp=%d %d %d, drt = %d %d %d\n", dcp.y, dcp.z, dcp.x, drt.y, drt.z, drt.x);
 
 	int img_width = d.x * 16;
 	int img_height = d.z * 16;
+
+	printf("[vis_png_draw_placements] image dimensions to be %d x %d (%d by %d blocks)\n", img_width, img_height, d.x, d.z);
+	assert(d.x > 0 && d.z > 0 && d.x < ARBITRARY_LIMIT && d.z < ARBITRARY_LIMIT);
 
 	gdImagePtr im = gdImageCreateTrueColor(img_width, img_height);
 
@@ -133,6 +142,8 @@ void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, stru
 			for (int x = 0; x < d.x; x++) {
 				int id = e->blocks[y * d.z * d.x + z * d.x + x];
 				int data = e->data[y * d.z * d.x + z * d.x + x];
+				if (y == 0 && id == 55)
+					vis_png_draw_block(im, textures_0, 1, x, z, 0); // underlying stone
 				vis_png_draw_block(im, textures_0, id, x, z, data);
 			}
 		}

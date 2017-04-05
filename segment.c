@@ -4,6 +4,13 @@
 
 #include "segment.h"
 
+int distance_pythagorean(struct coordinate a, struct coordinate b)
+{
+	int dx = abs(a.x - b.x);
+	int dz = abs(a.z - b.z);
+	return roundl(sqrt(dx * dx + dz * dz));
+}
+
 int distance_cityblock(struct coordinate a, struct coordinate b)
 {
 	return abs(a.x - b.x) + abs(a.z - b.z);

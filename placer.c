@@ -3,6 +3,7 @@
 #include <math.h>
 #include <string.h>
 #include <assert.h>
+#include <signal.h>
 
 #include "blif.h"
 #include "coord.h"
@@ -10,8 +11,8 @@
 #include "placer.h"
 #include "segment.h"
 
-#define MIN_WINDOW_WIDTH 2
-#define MIN_WINDOW_HEIGHT 2
+#define MIN_WINDOW_WIDTH 4
+#define MIN_WINDOW_HEIGHT 4
 
 #define DISPLACE_INTERCHANGE_RATIO 5.0
 
@@ -341,6 +342,8 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 {
 	int penalty = 0;
 
+	int (*distance_metric)(struct coordinate, struct coordinate) = distance_pythagorean;
+
 	/* map pins to nets */
 	struct pin_placements *pp = placer_place_pins(cp);
 	struct net_pin_map *npm = placer_create_net_pin_map(pp);
@@ -355,7 +358,7 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 			continue;
 
 		if (n_pins == 2) {
-			penalty += distance_cityblock(npm->pins[i][0].coordinate, npm->pins[i][1].coordinate);
+			penalty += distance_metric(npm->pins[i][0].coordinate, npm->pins[i][1].coordinate);
 			continue;
 		}
 
@@ -366,7 +369,7 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 		struct segments *mst = create_mst(coords, n_pins);
 		free(coords);
 		for (int seg = 0; seg < mst->n_segments; seg++) {
-			int d = distance_cityblock(mst->segments[seg].start, mst->segments[seg].end);
+			int d = distance_metric(mst->segments[seg].start, mst->segments[seg].end);
 			penalty += d;
 		}
 		free_segments(mst);
@@ -429,11 +432,11 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 	int wire_length = compute_wire_length_penalty(placements);
 	int bounds = compute_out_of_bounds_penalty(placements, boundary);
 	int design_size = compute_design_size_penalty(placements);
-	int squareness = compute_squareness_penalty(placements);
+	// int squareness = compute_squareness_penalty(placements);
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d\n", overlap, wire_length, bounds, design_size);
 #endif
-	return (overlap * overlap) + wire_length + bounds + design_size + squareness;
+	return (overlap * overlap) + wire_length + bounds + design_size;
 }
 
 static int accept(int new_score, int old_score, double t)
@@ -458,6 +461,14 @@ static double fixed_alpha(double t)
 	return 0.9;
 }
 
+static int interrupt_placement = 0;
+
+static void placer_sigint_handler(int a)
+{
+	printf("Interrupt\n");
+	interrupt_placement = 1;
+}
+
 // #define PLACER_GENERATION_DEBUG
 
 /*
@@ -478,6 +489,8 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	// generations = 10 * initial_placements->n_placements;
 
 	struct dimensions wanted;
+	struct dimensions d;
+
 	wanted.x = 100;
 	wanted.z = 100;
 	wanted.y = 5;
@@ -492,7 +505,10 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	int match_score = old_score;
 	int stop_iterations = 5;
 
-	for (i = 0; i < iterations || match_iterations < stop_iterations || overlap_penalty > 0; i++) {
+	interrupt_placement = 0;
+	signal(SIGINT, placer_sigint_handler);
+
+	for (i = 0; (i < iterations || match_iterations < stop_iterations || overlap_penalty > 0) && !interrupt_placement; i++) {
 #ifdef PLACER_GENERATION_DEBUG
 		printf("[placer] iteration = %d\n", i);
 #endif
@@ -509,7 +525,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 			printf("[placer] made a copy\n");
 #endif
 			method_used = generate(new_placements, &wanted, t, t_0, method);
-			recenter(new_placements, NULL);
+			recenter(new_placements, NULL, 0);
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generated a new\n");
 #endif
@@ -556,12 +572,14 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 
 		old_score = taken_score;
 
-		printf("\rIteration: %4d, Score: %6u (overlap penalty: %6u), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, t);
+		d = compute_placement_dimensions(best_placements);
+		printf("\rIteration: %4d, Score: %6u (overlap penalty: %6u, design size: %d x %d), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, d.z, d.x, t);
 		fflush(stdout);
 		// print_cell_placements(best_placements);
 
 		t = update(t, fixed_alpha);
 	}
+	signal(SIGINT, SIG_DFL);
 	printf("\nPlacement complete\n");
 
 	/* free overlap_tmp structure */

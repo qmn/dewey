@@ -29,6 +29,7 @@ struct mst_ubr_node {
 	int rank;
 };
 
+int distance_pythagorean(struct coordinate, struct coordinate);
 int distance_cityblock(struct coordinate, struct coordinate);
 
 struct segments *create_mst(struct coordinate *, int);

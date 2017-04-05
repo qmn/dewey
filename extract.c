@@ -44,11 +44,14 @@ struct coordinate routings_top_left_most_point(struct routings *rt)
 /* move the entire design so that all coordinates are non-negative:
  * if routings are provided, consider any possible out-of-bounds routing as well,
  * and recenter the routings as well. */
-void recenter(struct cell_placements *cp, struct routings *rt)
+void recenter(struct cell_placements *cp, struct routings *rt, int xz_margin)
 {
 	struct coordinate disp = placements_top_left_most_point(cp);
 	if (rt)
 		disp = coordinate_piecewise_min(disp, routings_top_left_most_point(rt));
+
+	struct coordinate xz_add = {0, -xz_margin, -xz_margin};
+	disp = coordinate_add(disp, xz_add);
 
 	placements_displace(cp, coordinate_neg(disp));
 
@@ -60,7 +63,7 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 {
 	struct cell_placements *ncp = copy_placements(cp);
 	struct routings *nrt = rt ? copy_routings(rt) : NULL;
-	recenter(ncp, nrt);
+	recenter(ncp, nrt, 0);
 
 	struct dimensions cpd = compute_placement_dimensions(ncp);
 	struct dimensions rtd = {0, 0, 0};

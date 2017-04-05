@@ -15,7 +15,7 @@ struct extraction {
 struct coordinate placements_top_left_most_point(struct cell_placements *);
 struct coordinate routings_top_left_most_point(struct routings *);
 
-void recenter(struct cell_placements *, struct routings *);
+void recenter(struct cell_placements *, struct routings *, int);
 
 struct extraction *extract_placements(struct cell_placements *);
 struct extraction *extract(struct cell_placements *, struct routings *);
