@@ -432,11 +432,11 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 	int wire_length = compute_wire_length_penalty(placements);
 	int bounds = compute_out_of_bounds_penalty(placements, boundary);
 	int design_size = compute_design_size_penalty(placements);
-	// int squareness = compute_squareness_penalty(placements);
+	int squareness = compute_squareness_penalty(placements);
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d\n", overlap, wire_length, bounds, design_size);
 #endif
-	return (overlap * overlap) + wire_length + bounds + design_size;
+	return (overlap * overlap) + wire_length + bounds + design_size + squareness;
 }
 
 static int accept(int new_score, int old_score, double t)

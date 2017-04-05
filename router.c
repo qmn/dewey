@@ -394,9 +394,10 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 				usage_matrix[usage_idx(c)]++;
 
 				// below
-				c.y--;
-				if (in_usage_bounds(c))
-					usage_matrix[usage_idx(c)]++;
+				struct coordinate c2 = c;
+				c2.y--;
+				if (in_usage_bounds(c2))
+					usage_matrix[usage_idx(c2)]++;
 
 				// violation matrix calculation
 				for (int m = 0; m < sizeof(check_offsets) / sizeof(struct coordinate); m++) {
