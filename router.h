@@ -18,6 +18,8 @@ struct routed_segment {
 	struct coordinate *coords;
 
 	int score;
+
+	struct routed_net *net;
 };
 
 struct routed_net {

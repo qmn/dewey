@@ -61,7 +61,7 @@ struct routed_segment cityblock_route(net_t net, struct segment s)
 
 	assert(count == len);
 
-	struct routed_segment rseg = {s, len, path};
+	struct routed_segment rseg = {s, len, path, 0, NULL};
 	return rseg;
 }
 
@@ -120,7 +120,7 @@ struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t 
 		struct coordinate *coords = malloc(sizeof(struct coordinate));
 		coords[0] = c;
 
-		struct routed_segment rseg = {seg, 1, coords};
+		struct routed_segment rseg = {seg, 1, coords, 0, rn};
 		
 		rn->routed_segments = malloc(sizeof(struct routed_segment));
 		rn->routed_segments[0] = rseg;
@@ -134,6 +134,7 @@ struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t 
 		rn->n_routed_segments = 1;
 		rn->routed_segments = malloc(sizeof(struct routed_segment));
 		rn->routed_segments[0] = cityblock_route(net, s);
+		rn->routed_segments[0].net = rn;
 #ifdef DUMB_ROUTE_DEBUG
 		print_routed_segment(rn);
 #endif
@@ -150,6 +151,7 @@ struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t 
 #endif
 		for (int j = 0; j < mst->n_segments; j++) {
 			struct routed_segment rseg = cityblock_route(net, mst->segments[j]);
+			rseg.net = rn;
 #ifdef DUMB_ROUTE_DEBUG
 			printf("  segment %d: ", j);
 			print_routed_segment(rseg);
@@ -222,6 +224,7 @@ struct routings *copy_routings(struct routings *old_rt)
 			rseg->coords = malloc(sizeof(struct coordinate) * rseg->n_coords);
 			memcpy(rseg->coords, old_rseg.coords, sizeof(struct coordinate) * rseg->n_coords);
 			rseg->score = old_rseg.score;
+			rseg->net = rn;
 		}
 	}
 
@@ -296,6 +299,10 @@ static struct dimensions usage_dimensions;
 static int usage_size = 0;
 static int usage_xz_margin = 0;
 
+// a violation matrix is a matrix with
+// 0: nothing there
+// 1-254: net i
+// 255: a block not matching other nets
 static unsigned char *violation_matrix = NULL;
 
 static int in_usage_bounds(struct coordinate c)
@@ -362,14 +369,17 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 
 					// only update violation_matrix within matrix bounds
 					if (in_usage_bounds(cc))
-						violation_matrix[idx] = 1;
+						violation_matrix[idx] = -1;
 				}
 			}
 		}
 
-/*
 		for (int j = 0; j < p.cell->n_pins; j++) {
 			struct coordinate pc = p.cell->pins[p.turns][j].coordinate;
+			assert(in_usage_bounds(pc));
+			net_t n = p.nets[j];
+			violation_matrix[usage_idx(pc)] = n;
+/*
 			struct coordinate pcc = coordinate_add(c, pc);
 			switch (p.cell->pins[p.turns][j].facing) {
 				case EAST: pcc.x++; break;
@@ -380,9 +390,9 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 			}
 
 			if (in_usage_bounds(pcc))
-				violation_matrix[usage_idx(pcc)] = 0;
-		}
+				violation_matrix[usage_idx(pcc)] = n;
 */
+		}
 	}
 
 	/* routings */
@@ -403,7 +413,7 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 				for (int m = 0; m < sizeof(check_offsets) / sizeof(struct coordinate); m++) {
 					struct coordinate cc = coordinate_add(c, check_offsets[m]);
 					if (in_usage_bounds(cc))
-						violation_matrix[usage_idx(cc)] = 1;
+						violation_matrix[usage_idx(cc)] = i;
 				}
 			}
 		}
@@ -428,6 +438,13 @@ static int cost_coord_cmp(const void *a, const void *b)
 {
 	// make heapsort sort from largest to smallest
 	return -1 * (((struct cost_coord *)a)->cost - ((struct cost_coord *)b)->cost);
+}
+
+static int violated(struct coordinate c, net_t n)
+{
+	assert(usage_matrix);
+	int i = usage_idx(c);
+	return violation_matrix[i] && violation_matrix[i] != n;
 }
 
 #define HEAP_INITIAL_SIZE 32
@@ -506,7 +523,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 #endif
 
 			// set new cost
-			unsigned int cost_delta = violation_matrix[usage_idx(cc)] ? violation_cost : movement_cost;
+			unsigned int cost_delta = violated(c, rseg->net->net) ? violation_cost : movement_cost;
 			unsigned int new_cost = cost[usage_idx(c)] + cost_delta;
 #ifdef MAZE_ROUTE_DEBUG
 			printf("[maze_route] new_cost is %u + %d = %u (previously %u)\n", cost[usage_idx(c)], cost_delta, new_cost, cost[usage_idx(cc)]);
@@ -611,7 +628,7 @@ static int count_routed_segment_violations(struct routed_segment *rseg)
 
 	/* for each, but without start and end */
 	for (int i = 1; i < rseg->n_coords - 1; i++) {
-		if (violation_matrix[usage_idx(rseg->coords[i])])
+		if (violated(rseg->coords[i], rseg->net->net))
 			score++;
 	}
 

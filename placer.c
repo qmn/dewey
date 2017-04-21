@@ -503,7 +503,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 
 	int match_iterations = 0;
 	int match_score = old_score;
-	int stop_iterations = 5;
+	int stop_iterations = 100;
 
 	interrupt_placement = 0;
 	signal(SIGINT, placer_sigint_handler);

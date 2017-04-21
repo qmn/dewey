@@ -30,10 +30,12 @@ struct coordinate routings_top_left_most_point(struct routings *rt)
 		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
 			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++) {
 				struct coordinate c = rt->routed_nets[i].routed_segments[j].coords[k];
-				if (unfound--)
+				if (unfound) {
 					d = c;
-				else
+					unfound = 0;
+				} else {
 					d = coordinate_piecewise_min(c, d);
+				}
 			}
 		}
 	}
