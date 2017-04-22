@@ -445,6 +445,35 @@ static int violated(struct coordinate c, net_t n)
 
 static struct cost_coord_heap *heap = NULL;
 
+// backtracing
+enum backtrace {BT_NONE, BT_WEST, BT_SOUTH, BT_EAST, BT_NORTH, BT_DOWN, BT_UP, BT_START};
+enum backtrace backtraces[] = {BT_WEST, BT_SOUTH, BT_EAST, BT_NORTH, BT_DOWN, BT_UP};
+struct coordinate movement_offsets[] = {
+	{0, 0, 1}, {0, 1, 0}, {0, 0, -1}, {0, -1, 0}, {3, 0, 0}, {-3, 0, 0}
+};
+
+static struct coordinate disp_backtrace(struct coordinate c, enum backtrace b)
+{
+	switch (b) {
+	case BT_WEST:
+		c.x--; break;
+	case BT_EAST:
+		c.x++; break;
+	case BT_NORTH:
+		c.z++; break;
+	case BT_SOUTH:
+		c.z--; break;
+	case BT_UP:
+		c.y += 3; break;
+	case BT_DOWN:
+		c.y -= 3; break;
+	default:
+		break;
+	}
+
+	return c;
+}
+
 static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt, struct routed_segment *rseg)
 {
 	/* rip out this segment */
@@ -454,8 +483,10 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	rseg->coords = NULL;
 
 	/* the additional xz_margin to each side for a possible route is 2 */
+/*
 	printf("[maze_route] attempting to maze-route from (%d, %d, %d) to (%d, %d, %d)\n", rseg->seg.start.y, rseg->seg.start.z, rseg->seg.start.x,
 		rseg->seg.end.y, rseg->seg.end.z, rseg->seg.end.x);
+*/
 	assert(segment_is_actually_in_routing(rt, rseg));
 
 	create_usage_matrix(cp, rt, 2);
@@ -465,13 +496,6 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	// costs
 	unsigned int *cost = malloc(usage_size * sizeof(unsigned int));
 	memset(cost, 0xff, usage_size * sizeof(unsigned int)); // set all to highest value
-
-	// backtracing
-	enum backtrace {BT_NONE, BT_WEST, BT_SOUTH, BT_EAST, BT_NORTH, BT_DOWN, BT_UP, BT_START};
-	enum backtrace backtraces[] = {BT_WEST, BT_SOUTH, BT_EAST, BT_NORTH, BT_DOWN, BT_UP};
-	struct coordinate movement_offsets[] = {
-		{0, 0, 1}, {0, 1, 0}, {0, 0, -1}, {0, -1, 0}, {3, 0, 0}, {-3, 0, 0}
-	};
 
 	enum backtrace *bt = calloc(usage_size, sizeof(enum backtrace));
 	for (int i = 0; i < usage_size; i++)
@@ -557,6 +581,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 		BT_WEST, BT_EAST, BT_NORTH, BT_SOUTH, BT_UP, BT_DOWN, BT_NONE, BT_START);
 #endif
 
+	int prev_bt = BT_NONE;
 	while (!coordinate_equal(current, rseg->seg.start)) {
 		int bt_ent = bt[usage_idx(current)];
 		assert(in_usage_bounds(current));
@@ -566,22 +591,19 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 		printf("[maze_route] current=(%d, %d, %d) backtrace = %d\n", current.y, current.z, current.x, bt_ent);
 #endif
 
-		switch (bt_ent) {
-		case BT_WEST:
-			current.x--; break;
-		case BT_EAST:
-			current.x++; break;
-		case BT_NORTH:
-			current.z++; break;
-		case BT_SOUTH:
-			current.z--; break;
-		case BT_UP:
-			current.y += 3; break;
-		case BT_DOWN:
-			current.y -= 3; break;
-		default:
-			break;
+#if 0
+		/* prefer moving in the same direction as opposed to the first thing the backtrace gives you */
+		struct coordinate cont = disp_backtrace(current, prev_bt);
+		struct coordinate next = disp_backtrace(current, bt_ent);
+		if (prev_bt != BT_NONE && in_usage_bounds(cont) && cost[usage_idx(cont)] <= cost[usage_idx(next)]) {
+			current = cont;
+		} else {
+			current = next;
+			prev_bt = bt_ent;
 		}
+#else
+		current = disp_backtrace(current, bt_ent);
+#endif
 
 		coords[n_coords++] = current;
 		if (n_coords >= coords_size) {
@@ -669,7 +691,7 @@ static void score_nets(struct routings *rt)
 				max_net_score = max(score, max_net_score);
 				min_net_score = min(score, min_net_score);
 			}
-			printf("[router] net %d, segment %d has score %d\n", i, j, score);
+			// printf("[router] net %d, segment %d has score %d\n", i, j, score);
 			// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
 		}
 	}
@@ -699,7 +721,9 @@ static struct rip_up_set natural_selection(struct routings *rt)
 			int r = random() % (range / 8 * 10);
 
 			if (r < score - lower) {
+#ifdef NATURAL_SELECTION_DEBUG
 				printf("[natural_selection] ripping up net %d, segment %d (rand(%d) = %d < %d)\n", i, j, (range / 8 * 10), r, score - lower);
+#endif
 				// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
 				rip_up[rip_up_count++] = &rt->routed_nets[i].routed_segments[j];
 				if (rip_up_count >= rip_up_size) {
@@ -707,7 +731,9 @@ static struct rip_up_set natural_selection(struct routings *rt)
 					rip_up = realloc(rip_up, rip_up_size * sizeof(struct routed_segment *));
 				}
 			} else {
+#ifdef NATURAL_SELECTION_DEBUG
 				printf("[natural_selection] leaving net %d, segment %d intact (rand(%d) = %d >= %d)\n", i, j, (range / 8 * 10), r, score - lower);
+#endif
 			}
 		}
 	}
@@ -739,7 +765,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	struct net_pin_map *npm = placer_create_net_pin_map(pp);
 
 	struct routings *rt = initial_route(blif, npm);
-	print_routings(rt);
+	// print_routings(rt);
 	recenter(cp, rt, 2);
 
 	create_usage_matrix(cp, rt, 2);
@@ -751,8 +777,8 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
 	while ((violations = total_violations(rt)) > 0 && !interrupt_routing) {
-		printf("[router] Iterations: %4d, Violations: %d\n", iterations + 1, violations);
 		struct rip_up_set rus = natural_selection(rt);
+		printf("[router] Iterations: %4d, Violations: %d, Segments to re-route: %d\n", iterations + 1, violations, rus.n_ripped);
 		for (int i = 0; i < rus.n_ripped; i++) {
 			rus.rip_up[i]->n_coords = 0;
 			free(rus.rip_up[i]->coords);
@@ -762,7 +788,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 		for (int i = 0; i < rus.n_ripped; i++) {
 			recenter(cp, rt, 2);
 			maze_reroute_segment(cp, rt, rus.rip_up[i]);
-			print_routed_segment(rus.rip_up[i]);
+			// print_routed_segment(rus.rip_up[i]);
 		}
 		free(rus.rip_up);
 
