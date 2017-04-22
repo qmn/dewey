@@ -218,12 +218,15 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 			c.y, c.z, c.x, pd.y, pd.z, pd.x);
 */
 
+		int z1 = max(0, c.z - OVERLAP_MARGIN), z2 = min(d.z, cell_z + OVERLAP_MARGIN);
+		int x1 = max(0, c.x - OVERLAP_MARGIN), x2 = min(d.x, cell_x + OVERLAP_MARGIN);
+
 		/* if another cell is there, increase the penalty */
 		for (int y = c.y; y < cell_y; y++) {
 			int by = y * d.z * d.x;
-			for (int z = max(0, c.z - OVERLAP_MARGIN); z < min(d.z, cell_z + OVERLAP_MARGIN); z++) {
+			for (int z = z1; z < z2; z++) {
 				int bz = z * d.x;
-				for (int x = max(0, c.x - OVERLAP_MARGIN); x < min(d.x, cell_x + OVERLAP_MARGIN); x++) {
+				for (int x = x1; x < x2; x++) {
 					// printf("[compute_overlap_penalty] y=%d z=%d x=%d\n", y, z, x);
 					if (overlap_tmp[by + bz + x]++)
 						penalty += 1;
