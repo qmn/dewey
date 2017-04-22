@@ -6,6 +6,11 @@
 #include "blif.h"
 #include "placer.h"
 
+struct cost_coord {
+	unsigned int cost;
+	struct coordinate coord;
+};
+
 struct routings {
 	int n_routed_nets;
 	struct routed_net *routed_nets;

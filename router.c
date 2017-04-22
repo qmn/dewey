@@ -7,6 +7,7 @@
 #include "segment.h"
 #include "placer.h"
 #include "router.h"
+#include "heap.h"
 #include "blif.h"
 
 static int max(int a, int b)
@@ -429,11 +430,6 @@ static struct routed_segment *segment_is_actually_in_routing(struct routings *rt
 	return NULL;
 }
 
-struct cost_coord {
-	unsigned int cost;
-	struct coordinate coord;
-};
-
 static int cost_coord_cmp(const void *a, const void *b)
 {
 	// make heapsort sort from largest to smallest
@@ -447,13 +443,10 @@ static int violated(struct coordinate c, net_t n)
 	return violation_matrix[i] && violation_matrix[i] != n;
 }
 
-#define HEAP_INITIAL_SIZE 32
+static struct cost_coord_heap *heap = NULL;
 
 static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt, struct routed_segment *rseg)
 {
-	static struct cost_coord *heap = NULL;
-	static int heap_size = 0;
-
 	/* rip out this segment */
 	rseg->n_coords = 0;
 	if (rseg->coords)
@@ -484,27 +477,27 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	for (int i = 0; i < usage_size; i++)
 		bt[i] = BT_NONE;
 
-	// heap
-	int heap_count = 0;
-
-	if (!heap) {
-		heap = calloc(HEAP_INITIAL_SIZE, sizeof(struct cost_coord));
-		heap_size = HEAP_INITIAL_SIZE;
-	} else {
-		memset(heap, 0, heap_size * sizeof(struct cost_coord));
-	}
+	if (heap)
+		clear_cost_coord_heap(heap);
+	else
+		heap = create_cost_coord_heap();
 
 	struct cost_coord first = {0, rseg->seg.start};
-	heap[heap_count++] = first;
+	cost_coord_heap_insert(heap, first);
 	cost[usage_idx(first.coord)] = 0;
 	bt[usage_idx(first.coord)] = BT_START;
 
 #ifdef MAZE_ROUTE_DEBUG
 	printf("[maze_route] starting...\n");
 #endif
-	while (heap_count > 0 && !interrupt_routing) {
-		struct coordinate c = heap[--heap_count].coord;
+	while (heap->n_elts > 0 && !interrupt_routing) {
+		struct coordinate c = cost_coord_heap_delete_min(heap).coord;
 #ifdef MAZE_ROUTE_DEBUG
+		sleep(1);
+		printf("[maze_route] heap is\n");
+		for (int i = 1; i < heap->n_elts + 1; i++)
+			printf("\t%d: {coord: (%d, %d, %d), cost: %d}\n", i, heap->elts[i].coord.y, heap->elts[i].coord.z, heap->elts[i].coord.x, heap->elts[i].cost);
+		printf("\n");
 		printf("[maze_route] popping (%d, %d, %d)\n", c.y, c.z, c.x);
 #endif
 		int movement_cost = 1;
@@ -519,7 +512,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 				continue;
 
 #ifdef MAZE_ROUTE_DEBUG
-			printf("[maze_route] heap_size = %d, visiting (%d, %d, %d) cost = %u\n", heap_count, cc.y, cc.z, cc.x, heap[heap_count].cost);
+			printf("[maze_route] heap_size = %d, visiting (%d, %d, %d)\n", heap->n_elts, cc.y, cc.z, cc.x);
 #endif
 
 			// set new cost
@@ -538,29 +531,12 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 				cost[usage_idx(cc)] = new_cost;
 				bt[usage_idx(cc)] = backtraces[i];
 
-				// check presence in heap
-				int in_heap = 0;
-				for (int j = 0; j < heap_count; j++) {
-					if (coordinate_equal(heap[j].coord, cc)) {
-						in_heap = 1;
-						break;
-					}
-				}
-
-				if (!in_heap) {
+				if (!cost_coord_heap_contains_coordinate(heap, cc)) {
 					struct cost_coord next = {new_cost, cc};
-					heap[heap_count++] = next;
-					// printf("[maze_route] adding (%d, %d, %d)\n", cc.y, cc.z, cc.x);
-					if (heap_count >= heap_size) {
-						printf("[maze_route] doubling heap from %d\n", heap_size);
-						heap_size *= 2;
-						heap = realloc(heap, heap_size * sizeof(struct cost_coord));
-					}
+					cost_coord_heap_insert(heap, next);
 				}
 			}
 		}
-
-		heapsort(heap, heap_count, sizeof(struct cost_coord), cost_coord_cmp);
 	}
 
 	if (interrupt_routing) {
