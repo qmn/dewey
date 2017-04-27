@@ -231,31 +231,25 @@ struct routings *copy_routings(struct routings *old_rt)
 
 struct dimensions compute_routings_dimensions(struct routings *rt)
 {
-	struct dimensions d = {0, 0, 0};
+	struct coordinate d = {0, 0, 0};
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net rn = rt->routed_nets[i];
 		for (int j = 0; j < rn.n_routed_segments; j++) {
 			struct routed_segment rseg = rn.routed_segments[j];
 			for (int k = 0; k < rseg.n_coords; k++) {
 				struct coordinate c = rseg.coords[k];
-				d.y = max(d.y, c.y + 1);
-				d.z = max(d.z, c.z + 1);
-				d.x = max(d.x, c.x + 1);
+				d = coordinate_piecewise_max(d, c);
 			}
 
-			struct coordinate c = rseg.seg.start->coordinate;
-			d.y = max(d.y, c.y + 1);
-			d.z = max(d.z, c.z + 1);
-			d.x = max(d.x, c.x + 1);
-
-			c = rseg.seg.end->coordinate;
-			d.y = max(d.y, c.y + 1);
-			d.z = max(d.z, c.z + 1);
-			d.x = max(d.x, c.x + 1);
+			d = coordinate_piecewise_max(d, rseg.seg.start->coordinate);
+			d = coordinate_piecewise_max(d, rseg.seg.end->coordinate);
 		}
 	}
 
-	return d;
+	/* the dimension is the highest coordinate, plus 1 on each */
+	struct dimensions dd = {d.y + 1, d.z + 1, d.x + 1};
+
+	return dd;
 }
 
 void routings_displace(struct routings *rt, struct coordinate disp)
