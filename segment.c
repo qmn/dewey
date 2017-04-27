@@ -63,7 +63,8 @@ static struct mst_heap *mst_heapsort(struct placed_pin *locs, int n_locs)
 		}
 	}
 
-	heapsort(h->nodes, h->n_nodes, sizeof(struct mst_heap_node), mst_heapsort_cmp);
+	/* surprise! use qsort instead */
+	qsort(h->nodes, h->n_nodes, sizeof(struct mst_heap_node), mst_heapsort_cmp);
 
 	return h;
 }

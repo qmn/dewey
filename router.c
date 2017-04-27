@@ -501,6 +501,9 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	unsigned int *cost = malloc(usage_size * sizeof(unsigned int));
 	memset(cost, 0xff, usage_size * sizeof(unsigned int)); // set all to highest value
 
+	unsigned char *heap_touched = malloc(usage_size * sizeof(unsigned char));
+	memset(heap_touched, 0, usage_size * sizeof(unsigned char));
+
 	enum backtrace *bt = calloc(usage_size, sizeof(enum backtrace));
 	for (int i = 0; i < usage_size; i++)
 		bt[i] = BT_NONE;
@@ -514,6 +517,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	cost_coord_heap_insert(heap, first);
 	cost[usage_idx(first.coord)] = 0;
 	bt[usage_idx(first.coord)] = BT_START;
+	heap_touched[usage_idx(first.coord)] = 1;
 
 #ifdef MAZE_ROUTE_DEBUG
 	printf("[maze_route] starting...\n");
@@ -559,13 +563,16 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 				cost[usage_idx(cc)] = new_cost;
 				bt[usage_idx(cc)] = backtraces[i];
 
-				if (!cost_coord_heap_contains_coordinate(heap, cc)) {
+				if (!heap_touched[usage_idx(cc)]) {
+					heap_touched[usage_idx(cc)] = 1;
 					struct cost_coord next = {new_cost, cc};
 					cost_coord_heap_insert(heap, next);
 				}
 			}
 		}
 	}
+
+	free(heap_touched);
 
 	if (interrupt_routing) {
 		return;
