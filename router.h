@@ -14,6 +14,8 @@ struct cost_coord {
 struct routings {
 	int n_routed_nets;
 	struct routed_net *routed_nets;
+
+	struct net_pin_map *npm;
 };
 
 struct routed_segment {

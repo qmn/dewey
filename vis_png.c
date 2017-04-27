@@ -113,7 +113,7 @@ void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, stru
 	struct dimensions dcp = compute_placement_dimensions(cp);
 	struct dimensions drt = compute_routings_dimensions(rt);
 	struct dimensions d = dimensions_piecewise_max(dcp, drt);
-	printf("dcp=%d %d %d, drt = %d %d %d\n", dcp.y, dcp.z, dcp.x, drt.y, drt.z, drt.x);
+	printf("dcp=%d x %d x %d, drt=%d x %d x %d\n", dcp.y, dcp.z, dcp.x, drt.y, drt.z, drt.x);
 
 	int img_width = d.x * 16;
 	int img_height = d.z * 16;

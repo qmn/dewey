@@ -365,14 +365,9 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 			continue;
 		}
 
-		struct coordinate *coords = calloc(n_pins, sizeof(struct coordinate));
-		for (int j = 0; j < n_pins; j++)
-			coords[j] = npm->pins[i][j].coordinate;
-
-		struct segments *mst = create_mst(coords, n_pins);
-		free(coords);
+		struct segments *mst = create_mst(npm->pins[i], n_pins);
 		for (int seg = 0; seg < mst->n_segments; seg++) {
-			int d = distance_metric(mst->segments[seg].start, mst->segments[seg].end);
+			int d = distance_metric(mst->segments[seg].start->coordinate, mst->segments[seg].end->coordinate);
 			penalty += d;
 		}
 		free_segments(mst);

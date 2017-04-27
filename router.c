@@ -31,13 +31,26 @@ static enum router_movements {
 };
 */
 
+struct coordinate extend_pin(enum ordinal_direction facing, struct coordinate c)
+{
+	switch (facing) {
+		case EAST: c.x++; break;
+		case WEST: c.x--; break;
+		case NORTH: c.z++; break;
+		case SOUTH: c.z--; break;
+		default: break;
+	}
+
+	return c;
+}
+
 static int interrupt_routing = 0;
 
 /* connect the two nets with a rectilinear path*/
-struct routed_segment cityblock_route(net_t net, struct segment s)
+struct routed_segment cityblock_route(struct segment seg)
 {
-	struct coordinate a = s.start;
-	struct coordinate b = s.end;
+	struct coordinate a = extend_pin(seg.start->cell_pin->facing, seg.start->coordinate);
+	struct coordinate b = extend_pin(seg.end->cell_pin->facing, seg.end->coordinate);
 
 	int len = distance_cityblock(a, b) + 1; // to include block you start at
 	int count = 0;
@@ -62,12 +75,13 @@ struct routed_segment cityblock_route(net_t net, struct segment s)
 
 	assert(count == len);
 
-	struct routed_segment rseg = {s, len, path, 0, NULL};
+	struct routed_segment rseg = {seg, len, path, 0, NULL};
 	return rseg;
 }
 
 void print_routed_segment(struct routed_segment *rseg)
 {
+	assert(rseg->n_coords >= 0);
 	for (int i = 0; i < rseg->n_coords; i++)
 		printf("(%d, %d, %d) ", rseg->coords[i].y, rseg->coords[i].z, rseg->coords[i].x);
 	printf("\n");
@@ -79,19 +93,6 @@ void free_routed_net(struct routed_net *rn)
 	for (int i = 0; i < rn->n_routed_segments; i++)
 		free(rn->routed_segments[i].coords);
 	free(rn);
-}
-
-struct coordinate extend_pin(enum ordinal_direction facing, struct coordinate c)
-{
-	switch (facing) {
-		case EAST: c.x++; break;
-		case WEST: c.x--; break;
-		case NORTH: c.z++; break;
-		case SOUTH: c.z--; break;
-		default: break;
-	}
-
-	return c;
 }
 
 /* generate the MST for this net to determine the order of connections,
@@ -113,45 +114,40 @@ struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t 
 		printf("[dumb_route] net %d (%s) has 0 pins\n", net, get_net_name(blif, net));
 #endif
 	} else if (n_pins == 1) {
-		struct coordinate c = npm->pins[net][0].coordinate;
 #ifdef DUMB_ROUTE_DEBUG
 		printf("[dumb_route] net %d (%s) has 1 pin at (%d, %d, %d)\n", net, get_net_name(blif, net), c.y, c.z, c.x);
 #endif
-		struct segment seg = {c, c};
+		struct segment seg = {&npm->pins[net][0], &npm->pins[net][0]};
 		struct coordinate *coords = malloc(sizeof(struct coordinate));
-		coords[0] = c;
+		coords[0] = npm->pins[net][0].coordinate;
 
 		struct routed_segment rseg = {seg, 1, coords, 0, rn};
 		
 		rn->routed_segments = malloc(sizeof(struct routed_segment));
 		rn->routed_segments[0] = rseg;
 	} else if (n_pins == 2) {
-		struct coordinate a = extend_pin(npm->pins[net][0].cell_pin->facing, npm->pins[net][0].coordinate);
-		struct coordinate b = extend_pin(npm->pins[net][1].cell_pin->facing, npm->pins[net][1].coordinate);
+		// struct coordinate a = extend_pin(npm->pins[net][0].cell_pin->facing, npm->pins[net][0].coordinate);
+		// struct coordinate b = extend_pin(npm->pins[net][1].cell_pin->facing, npm->pins[net][1].coordinate);
 #ifdef DUMB_ROUTE_DEBUG
 		printf("[dumb_route] net %d (%s):\n  ", net, get_net_name(blif, net));
 #endif
-		struct segment s = {a, b};
+		struct segment seg = {&npm->pins[net][0], &npm->pins[net][1]};
 		rn->n_routed_segments = 1;
 		rn->routed_segments = malloc(sizeof(struct routed_segment));
-		rn->routed_segments[0] = cityblock_route(net, s);
+		rn->routed_segments[0] = cityblock_route(seg);
 		rn->routed_segments[0].net = rn;
 #ifdef DUMB_ROUTE_DEBUG
 		print_routed_segment(rn);
 #endif
 	} else {
-		struct coordinate *coords = calloc(n_pins, sizeof(struct coordinate));
-		for (int j = 0; j < n_pins; j++)
-			coords[j] = extend_pin(npm->pins[net][j].cell_pin->facing, npm->pins[net][j].coordinate);
-
-		struct segments *mst = create_mst(coords, n_pins);
+		struct segments *mst = create_mst(npm->pins[net], n_pins);
 		rn->n_routed_segments = n_pins - 1;
 		rn->routed_segments = malloc(sizeof(struct routed_segment) * rn->n_routed_segments);
 #ifdef DUMB_ROUTE_DEBUG
 		printf("[dumb_route] net %d (%s) has %d pins:\n", net, get_net_name(blif, net), n_pins);
 #endif
 		for (int j = 0; j < mst->n_segments; j++) {
-			struct routed_segment rseg = cityblock_route(net, mst->segments[j]);
+			struct routed_segment rseg = cityblock_route(mst->segments[j]);
 			rseg.net = rn;
 #ifdef DUMB_ROUTE_DEBUG
 			printf("  segment %d: ", j);
@@ -204,6 +200,7 @@ struct routings *copy_routings(struct routings *old_rt)
 	struct routings *new_rt = malloc(sizeof(struct routings));
 	new_rt->n_routed_nets = old_rt->n_routed_nets;
 	new_rt->routed_nets = malloc((new_rt->n_routed_nets + 1) * sizeof(struct routed_net));
+	new_rt->npm = old_rt->npm;
 
 	/* for each routed_net in routings */
 	for (net_t i = 1; i < new_rt->n_routed_nets + 1; i++) {
@@ -246,12 +243,12 @@ struct dimensions compute_routings_dimensions(struct routings *rt)
 				d.x = max(d.x, c.x + 1);
 			}
 
-			struct coordinate c = rseg.seg.start;
+			struct coordinate c = rseg.seg.start->coordinate;
 			d.y = max(d.y, c.y + 1);
 			d.z = max(d.z, c.z + 1);
 			d.x = max(d.x, c.x + 1);
 
-			c = rseg.seg.end;
+			c = rseg.seg.end->coordinate;
 			d.y = max(d.y, c.y + 1);
 			d.z = max(d.z, c.z + 1);
 			d.x = max(d.x, c.x + 1);
@@ -267,11 +264,15 @@ void routings_displace(struct routings *rt, struct coordinate disp)
 		struct routed_net *rn = &(rt->routed_nets[i]);
 		for (int j = 0; j < rn->n_routed_segments; j++) {
 			struct routed_segment *rseg = &(rn->routed_segments[j]);
-			rseg->seg.start = coordinate_add(rseg->seg.start, disp);
-			rseg->seg.end = coordinate_add(rseg->seg.end, disp);
 			for (int k = 0; k < rseg->n_coords; k++) {
 				rseg->coords[k] = coordinate_add(rseg->coords[k], disp);
 			}
+		}
+
+		/* displace pins separately, as segments refer to them possibly more than once */
+		for (int j = 0; j < rt->npm->n_pins_for_net[i]; j++) {
+			struct placed_pin *p = &(rt->npm->pins[i][j]);
+			p->coordinate = coordinate_add(p->coordinate, disp);
 		}
 	}
 }
@@ -358,9 +359,12 @@ static void create_usage_matrix(struct cell_placements *cp, struct routings *rt,
 		int cell_y = c.y + pd.y;
 		int cell_z = xz_margin + c.z + pd.z;
 
+		int z1 = max(0, c.z - 1) + xz_margin, z2 = min(d.z, cell_z);
+		int x1 = max(0, c.x - 1) + xz_margin, x2 = min(d.x, cell_x);
+
 		for (int y = c.y; y < cell_y; y++) {
-			for (int z = max(0, c.z - 1) + xz_margin; z < min(d.z, cell_z); z++) {
-				for (int x = max(0, c.x - 1) + xz_margin; x < min(d.x, cell_x); x++) {
+			for (int z = z1; z < z2; z++) {
+				for (int x = x1; x < x2; x++) {
 					struct coordinate cc = {y, z, x};
 					int idx = usage_idx(cc);
 
@@ -490,8 +494,8 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	assert(segment_is_actually_in_routing(rt, rseg));
 
 	create_usage_matrix(cp, rt, 2);
-	assert(in_usage_bounds(rseg->seg.start));
-	assert(in_usage_bounds(rseg->seg.end));
+	assert(in_usage_bounds(rseg->seg.start->coordinate));
+	assert(in_usage_bounds(rseg->seg.end->coordinate));
 
 	// costs
 	unsigned int *cost = malloc(usage_size * sizeof(unsigned int));
@@ -506,7 +510,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 	else
 		heap = create_cost_coord_heap();
 
-	struct cost_coord first = {0, rseg->seg.start};
+	struct cost_coord first = {0, rseg->seg.start->coordinate};
 	cost_coord_heap_insert(heap, first);
 	cost[usage_idx(first.coord)] = 0;
 	bt[usage_idx(first.coord)] = BT_START;
@@ -567,7 +571,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 		return;
 	}
 
-	struct coordinate current = rseg->seg.end;
+	struct coordinate current = rseg->seg.end->coordinate;
 	assert(bt[usage_idx(current)] != BT_NONE);
 
 	int n_coords = 0;
@@ -582,7 +586,7 @@ static void maze_reroute_segment(struct cell_placements *cp, struct routings *rt
 #endif
 
 	int prev_bt = BT_NONE;
-	while (!coordinate_equal(current, rseg->seg.start)) {
+	while (!coordinate_equal(current, rseg->seg.start->coordinate)) {
 		int bt_ent = bt[usage_idx(current)];
 		assert(in_usage_bounds(current));
 		assert(bt_ent != BT_NONE);
@@ -647,6 +651,7 @@ static struct routings *initial_route(struct blif *blif, struct net_pin_map *npm
 	struct routings *rt = malloc(sizeof(struct routings));
 	rt->n_routed_nets = npm->n_nets;
 	rt->routed_nets = calloc(rt->n_routed_nets + 1, sizeof(struct routed_net));
+	rt->npm = npm;
 
 	for (net_t i = 1; i < npm->n_nets + 1; i++)
 		rt->routed_nets[i] = *dumb_route(blif, npm, i);
@@ -811,7 +816,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 */
 
 	free_pin_placements(pp);
-	free_net_pin_map(npm);
+	// free_net_pin_map(npm);
 
 	return rt;
 }
