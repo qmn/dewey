@@ -83,8 +83,6 @@ int main(int argc, char **argv)
 
 	struct routings *routings = route(blif, new_placements);
 
-	recenter(new_placements, routings, 0);
-
 	vis_png_draw_placements(blif, new_placements, routings);
 
         free_blif(blif);
