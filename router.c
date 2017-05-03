@@ -987,8 +987,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	printf("\n");
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
-	int max_iters = 50;
-	while ((violations = count_routings_violations(cp, rt)) > 0 && !interrupt_routing && iterations < max_iters) {
+	while ((violations = count_routings_violations(cp, rt)) > 0 && !interrupt_routing) {
 		struct rip_up_set rus = natural_selection(rt);
 		// sort elements by highest score
 		qsort(rus.rip_up, rus.n_ripped, sizeof(struct routed_segment *), routed_segment_cmp);
@@ -1002,7 +1001,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 		for (int i = 0; i < rus.n_ripped; i++) {
 			recenter(cp, rt, 2);
-			printf("[router] Rerouting a segment in net %d with score %d\n", rus.rip_up[i]->net->net, rus.rip_up[i]->score);
+			// printf("[router] Rerouting a segment in net %d with score %d\n", rus.rip_up[i]->net->net, rus.rip_up[i]->score);
 			maze_reroute_segment(cp, rt, rus.rip_up[i]);
 			// print_routed_segment(rus.rip_up[i]);
 		}
