@@ -82,10 +82,12 @@ struct cost_coord cost_coord_heap_delete_min(struct cost_coord_heap *h)
 	return elt;
 }
 
+/*
 static int cost_coord_equals(struct cost_coord a, struct cost_coord b)
 {
 	return coordinate_equal(a.coord, b.coord) && a.cost == b.cost;
 }
+*/
 
 int cost_coord_heap_contains_coordinate(struct cost_coord_heap *h, struct coordinate c)
 {

@@ -174,7 +174,7 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 	return d;
 }
 
-#define OVERLAP_MARGIN 2
+#define OVERLAP_MARGIN 3
 static char *overlap_tmp = NULL;
 static int overlap_tmp_size = 0;
 static int overlap_penalty = 0;
@@ -483,6 +483,8 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	unsigned int i, g;
 	enum placement_method method, method_used;
 	int new_score, old_score, taken_score;
+
+	taken_score = 0;
 
 	// generations = 10 * initial_placements->n_placements;
 

@@ -9,12 +9,18 @@
 struct coordinate placements_top_left_most_point(struct cell_placements *cp)
 {
 	/* select the first placement for a baseline point */
-	struct coordinate d = cp->placements[0].placement;
+	int unfound = 1;
+	struct coordinate d;
 
 	for (int i = 0; i < cp->n_placements; i++) {
 		struct coordinate c = cp->placements[i].placement;
-
-		d = coordinate_piecewise_min(c, d);
+		if (unfound) {
+			d = c;
+			unfound = 0;
+		} else {
+			d = coordinate_piecewise_min(c, d);
+		}
+		// printf("[ptlmp] c = (%d, %d, %d)\n", c.y, c.z, c.x);
 	}
 
 	return d;
