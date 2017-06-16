@@ -919,19 +919,20 @@ static struct rip_up_set natural_selection(struct routings *rt)
 	struct routed_segment **rip_up = malloc(rip_up_size * sizeof(struct routed_segment *));
 	memset(rip_up, 0, rip_up_size * sizeof(struct routed_segment *));
 
-	int range = max_net_score - min_net_score;
-	int lower = min_net_score - (range / 8);
-	// int higher = range + (range / 8);
+	int score_range = max_net_score - min_net_score;
+	int bias = score_range / 8;
+	int random_range = bias * 10;
 
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
 			int score = rt->routed_nets[i].routed_segments[j].score;
 
-			int r = random() % (range / 8 * 10);
+			int r = random() % random_range;
+			int adjusted_score = score - min_net_score + bias;
 
-			if (r < score - lower) {
+			if (r < adjusted_score) {
 #ifdef NATURAL_SELECTION_DEBUG
-				printf("[natural_selection] ripping up net %d, segment %d (rand(%d) = %d < %d)\n", i, j, (range / 8 * 10), r, score - lower);
+				printf("[natural_selection] ripping up net %d, segment %d (rand(%d) = %d < %d)\n", i, j, random_range, r, adjusted_score);
 #endif
 				// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
 				rip_up[rip_up_count++] = &rt->routed_nets[i].routed_segments[j];
@@ -941,7 +942,7 @@ static struct rip_up_set natural_selection(struct routings *rt)
 				}
 			} else {
 #ifdef NATURAL_SELECTION_DEBUG
-				printf("[natural_selection] leaving net %d, segment %d intact (rand(%d) = %d >= %d)\n", i, j, (range / 8 * 10), r, score - lower);
+				printf("[natural_selection] leaving net %d, segment %d intact (rand(%d) = %d >= %d)\n", i, j, random_range, r, adjusted_score);
 #endif
 			}
 		}
