@@ -21,7 +21,7 @@ int distance_cityblock_pins(struct placed_pin *start, struct placed_pin *end)
 	return abs(start->coordinate.x - end->coordinate.x) + abs(start->coordinate.z - end->coordinate.z);
 }
 
-static struct mst_ubr_node *mst_find(struct mst_ubr_node *n)
+struct mst_ubr_node *mst_find(struct mst_ubr_node *n)
 {
 	if (n->parent != n)
 		n->parent = mst_find(n->parent);
@@ -29,7 +29,7 @@ static struct mst_ubr_node *mst_find(struct mst_ubr_node *n)
 	return n->parent;
 }
 
-static void mst_union(struct mst_ubr_node *x, struct mst_ubr_node *y)
+void mst_union(struct mst_ubr_node *x, struct mst_ubr_node *y)
 {
 	struct mst_ubr_node *rx = mst_find(x);
 	struct mst_ubr_node *ry = mst_find(y);
@@ -43,12 +43,25 @@ static void mst_union(struct mst_ubr_node *x, struct mst_ubr_node *y)
 		ry->rank++;
 }
 
+struct mst_ubr_node *mst_make_set(int n)
+{
+	struct mst_ubr_node *ubr = calloc(sizeof(struct mst_ubr_node), n);
+
+	for (int i = 0; i < n; i++) {
+		ubr[i].parent = &ubr[i];
+		ubr[i].rank = 0;
+		ubr[i].me = i;
+	}
+
+	return ubr;
+}
+
 static int mst_heapsort_cmp(const void *x, const void *y)
 {
 	return ((struct mst_heap_node *)x)->weight - ((struct mst_heap_node *)y)->weight;
 }
 
-static struct mst_heap *mst_heapsort(struct placed_pin *locs, int n_locs)
+static struct mst_heap *mst_heapsort(struct coordinate *locs, int n_locs)
 {
 	struct mst_heap *h = malloc(sizeof(struct mst_heap));
 	h->n_nodes = n_locs * (n_locs - 1) / 2;
@@ -58,7 +71,7 @@ static struct mst_heap *mst_heapsort(struct placed_pin *locs, int n_locs)
 	int c = 0;
 	for (int y = 0; y < n_locs; y++) {
 		for (int x = y + 1; x < n_locs; x++) {
-			struct mst_heap_node n = {distance_cityblock_pins(&locs[x], &locs[y]), x, y};
+			struct mst_heap_node n = {distance_cityblock(locs[x], locs[y]), x, y};
 			h->nodes[c++] = n;
 		}
 	}
@@ -69,7 +82,7 @@ static struct mst_heap *mst_heapsort(struct placed_pin *locs, int n_locs)
 	return h;
 }
 
-struct segments *create_mst(struct placed_pin *locs, int n_locs)
+struct segments *create_mst(struct coordinate *locs, int n_locs)
 {
 	struct segments *mst = malloc(sizeof(struct segments));
 	mst->n_segments = n_locs - 1;
@@ -82,6 +95,7 @@ struct segments *create_mst(struct placed_pin *locs, int n_locs)
 	for (int i = 0; i < n_locs; i++) {
 		s[i].parent = &s[i];
 		s[i].rank = 0;
+		s[i].me = i;
 	}
 
 	int n_segments = 0;
@@ -89,7 +103,7 @@ struct segments *create_mst(struct placed_pin *locs, int n_locs)
 		int x = h->nodes[i].x;
 		int y = h->nodes[i].y;
 		if (mst_find(&s[x]) != mst_find(&s[y])) {
-			struct segment new_seg = {&locs[x], &locs[y]};
+			struct segment new_seg = {locs[x], locs[y]};
 			mst->segments[n_segments++] = new_seg;
 			mst_union(&s[x], &s[y]);
 			if (n_segments >= mst->n_segments)

@@ -4,8 +4,8 @@
 #include "cell.h"
 
 struct segment {
-	struct placed_pin *start;
-	struct placed_pin *end;
+	struct coordinate start;
+	struct coordinate end;
 };
 
 struct segments {
@@ -27,12 +27,17 @@ struct mst_heap_node {
 struct mst_ubr_node {
 	struct mst_ubr_node *parent;
 	int rank;
+	int me;
 };
 
 int distance_pythagorean(struct coordinate, struct coordinate);
 int distance_cityblock(struct coordinate, struct coordinate);
 
-struct segments *create_mst(struct placed_pin *, int);
+struct mst_ubr_node *mst_make_set(int);
+struct mst_ubr_node *mst_find(struct mst_ubr_node *);
+void mst_union(struct mst_ubr_node *, struct mst_ubr_node *);
+
+struct segments *create_mst(struct coordinate *, int);
 void free_segments(struct segments *);
 
 #endif /* __SEGMENT_H__ */

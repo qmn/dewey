@@ -240,6 +240,24 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 	return penalty;
 }
 
+struct coordinate extend_in_direction(enum ordinal_direction facing, struct coordinate c)
+{
+	switch (facing) {
+		case EAST: c.x++; break;
+		case WEST: c.x--; break;
+		case NORTH: c.z--; break;
+		case SOUTH: c.z++; break;
+		default: break;
+	}
+
+	return c;
+}
+
+struct coordinate extend_pin(struct placed_pin *p)
+{
+	return extend_in_direction(p->cell_pin->facing, p->coordinate);
+}
+
 /* given a list of pin placements, generate a list collecting
  * pins based on the net they belong to */
 struct net_pin_map *placer_create_net_pin_map(struct pin_placements *pp)
@@ -365,12 +383,17 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 			continue;
 		}
 
-		struct segments *mst = create_mst(npm->pins[i], n_pins);
+		struct coordinate *coords = malloc(n_pins * sizeof(struct coordinate));
+		for (int j = 0; j < n_pins; j++)
+			coords[j] = extend_pin(&npm->pins[i][j]);
+
+		struct segments *mst = create_mst(coords, n_pins);
 		for (int seg = 0; seg < mst->n_segments; seg++) {
-			int d = distance_metric(mst->segments[seg].start->coordinate, mst->segments[seg].end->coordinate);
+			int d = distance_metric(mst->segments[seg].start, mst->segments[seg].end);
 			penalty += d;
 		}
 		free_segments(mst);
+		free(coords);
 	}
 	free_net_pin_map(npm);
 

@@ -1,5 +1,5 @@
 #ifndef __HEAP_H__
-#define __HEAP_H_
+#define __HEAP_H__
 
 #include "coord.h"
 
@@ -15,6 +15,7 @@ void clear_cost_coord_heap(struct cost_coord_heap *);
 
 void cost_coord_heap_insert(struct cost_coord_heap *, struct cost_coord);
 struct cost_coord cost_coord_heap_delete_min(struct cost_coord_heap *);
+struct cost_coord cost_coord_heap_peek(struct cost_coord_heap *);
 
 int cost_coord_heap_contains_coordinate(struct cost_coord_heap *, struct coordinate);
 

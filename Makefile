@@ -1,5 +1,5 @@
-CC = gcc-6
-CFLAGS += -Wall -pedantic -std=c99 -g -I/usr/local/include -L/usr/local/lib -lyaml -lpng -pg -lgd -O2
+CC = clang
+CFLAGS += -Wall -pedantic -std=c99 -g -I/usr/local/include -L/usr/local/lib -lyaml -lpng -pg -lgd
 BUILD_DIR = build
 SRCS = $(wildcard *.c)
 OBJS = $(foreach f,$(SRCS:.c=.o),$(BUILD_DIR)/$f)
@@ -20,5 +20,8 @@ test: dewey
 
 clean:
 	rm -rf build dewey
+
+tags: $(SRCS)
+	ctags -R $(wildcard *.[ch])
 
 .PHONY: default clean

@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <assert.h>
 
 #include "heap.h"
 #include "router.h"
@@ -7,9 +8,13 @@
 struct cost_coord_heap *create_cost_coord_heap()
 {
 	struct cost_coord_heap *h = malloc(sizeof(struct cost_coord_heap));
+	h->elts = NULL;
+	assert(h);
+
 	h->size = 1;
 	h->n_elts = 0;
 	h->elts = malloc(h->size * sizeof(struct cost_coord));
+	assert(h->elts);
 
 	return h;
 }
@@ -56,6 +61,7 @@ void cost_coord_heap_insert(struct cost_coord_heap *h, struct cost_coord c)
 #ifdef COST_COORD_HEAP_DEBUG
 		printf("cost_coord_heap doubling in size to %d\n", h->size + 1);
 #endif
+		assert(h->elts);
 	}
 
 	h->elts[i] = c;
@@ -71,6 +77,7 @@ void cost_coord_heap_insert(struct cost_coord_heap *h, struct cost_coord c)
 
 struct cost_coord cost_coord_heap_delete_min(struct cost_coord_heap *h)
 {
+	assert(h->n_elts > 0);
 	struct cost_coord elt = h->elts[1];
 
 	/* replace the first entry with the last entry */
@@ -80,6 +87,12 @@ struct cost_coord cost_coord_heap_delete_min(struct cost_coord_heap *h)
 	min_heapify(h, 1);
 
 	return elt;
+}
+
+struct cost_coord cost_coord_heap_peek(struct cost_coord_heap *h)
+{
+	assert(h->n_elts > 0);
+	return h->elts[1];
 }
 
 /*

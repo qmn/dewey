@@ -50,6 +50,7 @@ struct pin_placements *placer_place_pins(struct cell_placements *);
 void free_pin_placements(struct pin_placements *);
 
 struct net_pin_map *placer_create_net_pin_map(struct pin_placements *);
+struct coordinate extend_pin(struct placed_pin *);
 void free_net_pin_map(struct net_pin_map *);
 
 struct extraction *extract_placements(struct cell_placements *);
