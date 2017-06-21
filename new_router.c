@@ -216,8 +216,9 @@ struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct rout
 
 		int z1 = max(0, c.z), z2 = min(d.z, cell_z);
 		int x1 = max(0, c.x), x2 = min(d.x, cell_x);
+		int y2 = min(cell_y + 1, d.y);
 
-		for (int y = c.y; y < cell_y; y++) {
+		for (int y = c.y; y < y2; y++) {
 			for (int z = z1; z < z2; z++) {
 				for (int x = x1; x < x2; x++) {
 					struct coordinate cc = {y, z, x};
@@ -608,11 +609,6 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 
 			struct routed_segment *rseg = &(rnet->routed_segments[j]);
 
-			struct coordinate s1, s2, e1, e2;
-			s1 = s2 = rseg->seg.start; s2.y--;
-			e1 = e2 = rseg->seg.end; e2.y--;
-			struct coordinate ignore[] = {s1, s2, e1, e2};
-
 			for (int k = 0; k < rseg->n_coords; k++) {
 				struct coordinate c = rseg->coords[k];
 				// printf("[crv] c = (%d, %d, %d)\n", c.y, c.z, c.x);
@@ -622,6 +618,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 					struct coordinate cc = coordinate_add(c, check_offsets[m]);
 					// printf("[crv] cc = (%d, %d, %d)\n", cc.y, cc.z, cc.x);
 
+					// ignore if checking out of bounds
 					if (cc.y < 0 || cc.y >= d.y || cc.z < 0 || cc.z >= d.z || cc.x < 0 || cc.x >= d.x) {
 						// printf("[crv] oob\n");
 						continue;
@@ -630,13 +627,17 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 					// only ignore the start/end pins for first/last blocks on net
 					if (k == 0 || k == rseg->n_coords - 1) {
 						int skip = 0;
-						for (int n = 0; n < sizeof(ignore) / sizeof(struct coordinate); n++)
-							if (coordinate_equal(cc, ignore[n]))
+						for (int n = 0; n < rnet->n_pins; n++) {
+							struct coordinate pin_cc = rnet->pins[n].coordinate;
+							if (coordinate_equal(cc, pin_cc))
 								skip++;
-						if (skip) {
-							// printf("[crv] skip\n");
-							continue;
+							pin_cc.y--;
+							if (coordinate_equal(cc, pin_cc))
+								skip++;
 						}
+
+						if (skip)
+							continue;
 					}
 
 					int idx = (cc.y * d.z * d.x) + (cc.z * d.x) + cc.x;
@@ -645,7 +646,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 					if (matrix[idx]) {
 						block_in_violation++;
 						// printf("[crv] violation\n");
-						// printf("[violation] by net %d, seg %d at (%d, %d, %d) with (%d, %d, %d) due to net %d\n", i, j, c.y, c.z, c.x, cc.y, cc.z, cc.x, net_matrix[idx]);
+						// printf("[violation] by net %d, seg %d at (%d, %d, %d) with (%d, %d, %d)\n", i, j, c.y, c.z, c.x, cc.y, cc.z, cc.x);
 					}
 				}
 
@@ -939,7 +940,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	print_routings(rt);
 
 	free_pin_placements(pp);
-	free_net_pin_map(npm);
+	// free_net_pin_map(npm); // screws with extract in vis_png
 
 	return rt;
 }
