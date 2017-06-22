@@ -4,6 +4,13 @@
 #include "blif.h"
 #include "cell.h"
 
+#define CONSTR_NONE       0
+#define CONSTR_NO_ROTATE  (1L << 0)
+#define CONSTR_KEEP_LEFT  (1L << 1)
+#define CONSTR_KEEP_RIGHT (1L << 2)
+
+#define CONSTR_MASK_NO_INTERCHANGE (CONSTR_KEEP_LEFT | CONSTR_KEEP_RIGHT)
+
 struct pin_placements {
 	int n_pins;
 	struct placed_pin *pins;
@@ -16,6 +23,8 @@ struct placement {
 
 	/* a mapping of net names to net_t and should be the same size as cell->n_pins */
 	net_t *nets;
+
+	unsigned long constraints;
 };
 
 struct cell_placements {

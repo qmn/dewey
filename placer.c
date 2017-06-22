@@ -11,12 +11,15 @@
 #include "placer.h"
 #include "segment.h"
 
+#define OVERLAP_MARGIN 3
+
 #define MIN_WINDOW_WIDTH 4
 #define MIN_WINDOW_HEIGHT 4
 
 #define DISPLACE_INTERCHANGE_RATIO 5.0
 
 enum placement_method {
+	NONE,
 	DISPLACE,
 	REORIENT,
 	INTERCHANGE
@@ -30,6 +33,31 @@ static int max(int a, int b)
 static int min(int a, int b)
 {
 	return a < b ? a : b;
+}
+
+static struct dimensions compute_unconstrained_placement_dimensions(struct cell_placements *cp)
+{
+	int i;
+	struct dimensions d = {0, 0, 0};
+
+	for (i = 0; i < cp->n_placements; i++) {
+		struct placement p = cp->placements[i];
+
+		struct coordinate c = p.placement;
+		struct dimensions pd = p.cell->dimensions[p.turns];
+
+		int cell_x = c.x + pd.x + 1;
+		int cell_y = c.y + pd.y + 1;
+		int cell_z  = c.z + pd.z + 1;
+
+		if (!(p.constraints & CONSTR_KEEP_RIGHT))
+			d.x = max(cell_x, d.x);
+
+		d.y = max(cell_y, d.y);
+		d.z = max(cell_z, d.z);
+	}
+
+	return d;
 }
 
 /*
@@ -48,7 +76,7 @@ static int min(int a, int b)
  * it returns the method used
  */
 static enum placement_method generate(struct cell_placements *placements,
-		struct dimensions *dimensions,
+		struct dimensions dimensions,
 		double t, double t_0,
 		enum placement_method method)
 {
@@ -58,21 +86,27 @@ static enum placement_method generate(struct cell_placements *placements,
 	double scaling_factor;
 	long window_height, window_width;
 
-	/* select a random cell to interchange, displace, or reorient */
-	cell_a_idx = (unsigned long)random() % placements->n_placements;
-	cell_a = &(placements->placements[cell_a_idx]);
-
 	/* compute the probabilty we change this cell */
 	p = (double)random() / (double)(RAND_MAX);
 	interchange_threshold = (1.0 / DISPLACE_INTERCHANGE_RATIO);
 
+	/* select a random cell to interchange, displace, or reorient */
+	cell_a_idx = (unsigned long)random() % placements->n_placements;
+	cell_a = &(placements->placements[cell_a_idx]);
+
 	if (p > interchange_threshold) {
+		/* select another cell_a if we can't interchange this one */
+		while (cell_a->constraints & CONSTR_MASK_NO_INTERCHANGE) {
+			cell_a_idx = (unsigned long)random() % placements->n_placements;
+			cell_a = &(placements->placements[cell_a_idx]);
+		}
+		
 		/* select another cell */
+		struct placement *cell_b = NULL;
 		do {
 			cell_b_idx = (unsigned long)random() % placements->n_placements;
-		} while (cell_b_idx == cell_a_idx);
-
-		struct placement *cell_b = &(placements->placements[cell_b_idx]);
+			cell_b = &(placements->placements[cell_b_idx]);
+		} while (cell_b_idx == cell_a_idx || cell_b->constraints & CONSTR_MASK_NO_INTERCHANGE);
 
 		/* interchange the cells' placements */
 		struct coordinate tmp = cell_a->placement;
@@ -88,8 +122,8 @@ static enum placement_method generate(struct cell_placements *placements,
 		scaling_factor = log(t) / log(t_0);
 
 		/* figure the most this placement can move */
-		window_height = lround(dimensions->z * scaling_factor);
-		window_width = lround(dimensions->x * scaling_factor);
+		window_height = lround(dimensions.z * scaling_factor);
+		window_width = lround(dimensions.x * scaling_factor);
 
 		window_height = max(window_height, MIN_WINDOW_HEIGHT);
 		window_width = max(window_width, MIN_WINDOW_WIDTH);
@@ -99,15 +133,25 @@ static enum placement_method generate(struct cell_placements *placements,
 		int dx = random() % (window_width * 2) - window_width;
 		// printf("[placer] displace %d by dz = %d, dx = %d\n", cell_a_idx, dz, dx);
 		cell_a->placement.z += dz;
-		cell_a->placement.x += dx;
 
+		if (cell_a->constraints & CONSTR_KEEP_LEFT) {
+			cell_a->placement.x = 0;
+		} else if (cell_a->constraints & CONSTR_KEEP_RIGHT) {
+			struct dimensions dd = compute_unconstrained_placement_dimensions(placements);
+			cell_a->placement.x = dd.x + OVERLAP_MARGIN; // plus margin
+		} else {
+			cell_a->placement.x += dx;
+		}
 
 		return DISPLACE;
 	} else {
 		/* reorient */
 		// printf("[placer] rotate\n");
-		cell_a->turns = (cell_a->turns + 1) % 4;
-		return REORIENT;
+		if (!(cell_a->constraints & CONSTR_NO_ROTATE)) {
+			cell_a->turns = (cell_a->turns + 1) % 4;
+			return REORIENT;
+		}
+		return NONE;
 	}
 }
 
@@ -159,6 +203,7 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 
 	for (i = 0; i < cp->n_placements; i++) {
 		struct placement p = cp->placements[i];
+
 		struct coordinate c = p.placement;
 		struct dimensions pd = p.cell->dimensions[p.turns];
 
@@ -174,7 +219,6 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 	return d;
 }
 
-#define OVERLAP_MARGIN 3
 static char *overlap_tmp = NULL;
 static int overlap_tmp_size = 0;
 static int overlap_penalty = 0;
@@ -433,7 +477,7 @@ static int compute_out_of_bounds_penalty(struct cell_placements *placements, str
 
 static int compute_squareness_penalty(struct cell_placements *cp)
 {
-	struct dimensions d = compute_placement_dimensions(cp);
+	struct dimensions d = compute_placement_dimensions(cp);;
 	return max(d.x, d.z) * max(d.x, d.z) * d.y;
 }
 
@@ -512,7 +556,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	// generations = 10 * initial_placements->n_placements;
 
 	struct dimensions wanted;
-	struct dimensions d;
+	struct dimensions d = compute_placement_dimensions(initial_placements);
 
 	wanted.x = 100;
 	wanted.z = 100;
@@ -547,7 +591,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] made a copy\n");
 #endif
-			method_used = generate(new_placements, &wanted, t, t_0, method);
+			method_used = generate(new_placements, dimensions_piecewise_max(wanted, d), t, t_0, method);
 			recenter(new_placements, NULL, 0);
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generated a new\n");
@@ -664,7 +708,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 		struct coordinate c = {0, 0, 0};
 		net_t *nets = malloc(sizeof(net_t));
 		nets[0] = blif->inputs[i];
-		struct placement p = {input_pin, c, 0, nets};
+		struct placement p = {input_pin, c, 0, nets, CONSTR_NO_ROTATE | CONSTR_KEEP_LEFT};
 		placements->placements[cell_count++] = p;
 	}
 
@@ -672,7 +716,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 		struct coordinate c = {0, 0, 0};
 		net_t *nets = malloc(sizeof(net_t));
 		nets[0] = blif->outputs[i];
-		struct placement p = {output_pin, c, 0, nets};
+		struct placement p = {output_pin, c, 0, nets, CONSTR_NO_ROTATE | CONSTR_KEEP_RIGHT};
 		placements->placements[cell_count++] = p;
 	}
 
@@ -702,6 +746,8 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 
 		p.turns = 0;
 
+		p.constraints = CONSTR_NONE;
+
 		placements->placements[cell_count++] = p;
 	}
 
@@ -713,8 +759,8 @@ void print_cell_placements(struct cell_placements *cp)
 	int i;
 	for (i = 0; i < cp->n_placements; i++) {
 		struct placement p = cp->placements[i];
-		printf("[placer] placement: %s @ (y=%d, z=%d, x=%d), %lu turns\n",
-			p.cell->name, p.placement.y, p.placement.z, p.placement.x, p.turns);
+		printf("[placer] placement: %s @ (y=%d, z=%d, x=%d), %lu turns, constraints: 0x%x\n",
+			p.cell->name, p.placement.y, p.placement.z, p.placement.x, p.turns, p.constraints);
 	}
 }
 

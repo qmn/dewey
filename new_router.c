@@ -275,6 +275,52 @@ static int usage_matrix_violated(struct usage_matrix *m, struct coordinate c)
 	return 0;
 }
 
+/*
+// ltl = lowest top left (smallest y, z, x); hbr = highest bottom right (largest y, z, x)
+static int coordinate_within(struct coordinate llt, struct coordinate hbr, struct coordinate c)
+{
+	return c.y >= llt.y && c.y <= hbr.y &&
+	       c.z >= llt.z && c.z <= hbr.z &&
+	       c.x >= llt.x && c.x <= hbr.x;
+}
+
+// tests whether this coordinate joins with a point with a via
+static int is_legal_net_join_point(struct routed_net *rn, struct coordinate c)
+{
+	// creates a 3 x 3 x 7 tall area centered on c
+	int occupied[3 * 3 * 7];
+	memset(occupied, 0, 3 * 3 * 7 * sizeof(int));
+
+	struct coordinate disp = {c.y - 3, c.z - 1, c.x - 1};
+
+	for (int i = 0; i < rn->n_routed_segments; i++) {
+		struct routed_segment rseg = rn->routed_segments[i];
+		for (int j = 0; j < rseg.n_coords; j++) {
+			struct coordinate a = coordinate_sub(rseg.coords[j], disp);
+			if (a.y >= 0 && a.y <= c.y + 3 && a.z >= 0 && a.z <= c.z + 1 && a.x >= 0 && <= c.x + 1) {
+				int idx = a.y * (3 * 3) + a.z * 3 + a.x;
+				assert(idx >= 0 && idx < 3 * 3 * 7);
+
+				occupied[idx]++;
+			}
+		}
+	}
+
+	struct coordinate offsets[] = {{0, 0, 1}, {0, 0, -1}, {0, 1, 0}, {0, -1, 0}};
+	int y_offsets[] = {3, 0, -3};
+
+	for (int i = 0; i < sizeof(offsets) / sizeof(struct coordinate); i++) {
+		struct coordinate cc = offsets[i];
+		int intersections = 0;
+		for (int j = 0; j < sizeof(y_offsets) / sizeof(int); j++) {
+			cc.y = y_offsets[j];
+		}
+	}
+
+	return 1;
+}
+*/
+
 /* maze routing routines */
 typedef unsigned int visitor_t;
 visitor_t to_visitor_t(unsigned int i) {
@@ -305,6 +351,20 @@ void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct 
 	}
 }
 
+// mark the usage matrix in a 3x3 zone centered on c to prevent subsequent routings
+static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
+{
+	for (int z = c.z - 1; z <= c.z + 1; z++) {
+		for (int x = c.x - 1; x <= c.x + 1; x++) {
+			struct coordinate cc = {c.y, z, x};
+			if (in_usage_bounds(m, cc))
+				continue;
+
+			usage_mark(m, cc);
+		}
+	}
+}
+
 struct routed_segment make_segment_from_backtrace(struct usage_matrix *m, enum backtrace *bt, struct coordinate start)
 {
 	int coords_size = 4;
@@ -330,8 +390,14 @@ struct routed_segment make_segment_from_backtrace(struct usage_matrix *m, enum b
 			current = cont;
 		} else {
 */
+		if (is_vertical(bt_ent))
+			mark_via_violation_zone(m, current);
+
 		current = next;
 		assert(in_usage_bounds(m, current));
+
+		if (is_vertical(bt_ent))
+			mark_via_violation_zone(m, current);
 /*
 			prev_bt = bt_ent;
 		}
@@ -458,7 +524,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 				int their_heap_idx = from_visitor_t(visited[usage_idx(m, cc)]);
 				int their_parent_group = mst_find(&groups[their_heap_idx])->me;
 
-				if (mst_find(&groups[smallest_heap_idx]) != mst_find(&groups[their_heap_idx])) {
+				if (mst_find(&groups[smallest_heap_idx]) != mst_find(&groups[their_heap_idx]) && !is_vertical(backtraces[movt])) {
 					// create two new segments, meeting at this point
 					// backtrace these points, filling in these segments
 					struct coordinate meeting_point = cc;
@@ -941,6 +1007,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	for (net_t i = 1; i < rt->n_routed_nets; i++) {
 		rip_up(&rt->routed_nets[i]);
 		maze_reroute(cp, rt, &rt->routed_nets[i]);
+		recenter(cp, rt, 2);
 	}
 
 	printf("[router] Routing complete!\n");
