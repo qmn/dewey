@@ -936,7 +936,14 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 	signal(SIGINT, SIG_DFL);
 
-	printf("\n[router] Routing complete!\n");
+	printf("\n[router] Solution found! Optimizing...\n");
+
+	for (net_t i = 1; i < rt->n_routed_nets; i++) {
+		rip_up(&rt->routed_nets[i]);
+		maze_reroute(cp, rt, &rt->routed_nets[i]);
+	}
+
+	printf("[router] Routing complete!\n");
 	print_routings(rt);
 
 	free_pin_placements(pp);
