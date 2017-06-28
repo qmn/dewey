@@ -769,7 +769,7 @@ void print_cell_placements(struct cell_placements *cp)
 	int i;
 	for (i = 0; i < cp->n_placements; i++) {
 		struct placement p = cp->placements[i];
-		printf("[placer] placement: %s @ (y=%d, z=%d, x=%d), %lu turns, constraints: 0x%x\n",
+		printf("[placer] placement: %s @ (y=%d, z=%d, x=%d), %lu turns, constraints: 0x%lx\n",
 			p.cell->name, p.placement.y, p.placement.z, p.placement.x, p.turns, p.constraints);
 	}
 }

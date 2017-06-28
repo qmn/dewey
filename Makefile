@@ -1,5 +1,6 @@
 CC = clang
-CFLAGS += -Wall -pedantic -std=c99 -g -I/usr/local/include -L/usr/local/lib -lyaml -lpng -pg -lgd
+CFLAGS += -Wall -pedantic -std=c99 -g -I/usr/local/include
+EXEC_CFLAGS += -L/usr/local/lib -lyaml -lpng -pg -lgd
 BUILD_DIR = build
 SRCS = $(wildcard *.c)
 OBJS = $(foreach f,$(SRCS:.c=.o),$(BUILD_DIR)/$f)
@@ -13,7 +14,7 @@ $(BUILD_DIR)/%.o : %.c $(BUILD_DIR)
 	$(CC) -c $(CFLAGS) -o $@ $<
 
 dewey: $(OBJS)
-	$(CC) $(CFLAGS) -o $@ $^
+	$(CC) $(CFLAGS) $(EXEC_CFLAGS) -o $@ $^
 
 test: dewey
 	./dewey counter.blif

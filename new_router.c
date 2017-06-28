@@ -389,7 +389,7 @@ struct routed_segment make_segment_from_backtrace(struct usage_matrix *m, enum b
 	struct coordinate end = {0, 0, 0};
 	coords[n_coords++] = current;
 
-	int prev_bt = BT_NONE;
+	// int prev_bt = BT_NONE;
 	while (bt[usage_idx(m, current)] != BT_START) {
 
 		enum backtrace bt_ent = bt[usage_idx(m, current)];
@@ -773,31 +773,6 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 	free(matrix);
 
 	return total_violations;
-}
-
-static void score_nets(struct routings *rt)
-{
-	total_nets = 0;
-	int unset = 1;
-
-	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		total_nets += rt->routed_nets[i].n_routed_segments;
-		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
-			int score = 0; // score_routed_segment(&(rt->routed_nets[i].routed_segments[j]));
-			rt->routed_nets[i].routed_segments[j].score = score;
-
-			if (unset) {
-				unset = 0;
-				max_net_score = score;
-				min_net_score = score;
-			} else {
-				max_net_score = max(score, max_net_score);
-				min_net_score = min(score, min_net_score);
-			}
-			// printf("[router] net %d, segment %d has score %d\n", i, j, score);
-			// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
-		}
-	}
 }
 
 /* rip-up and natural selection routines */

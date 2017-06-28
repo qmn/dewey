@@ -167,14 +167,14 @@ void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, stru
 		gdFontPtr font = gdFontGetSmall();
 		char buf[3];
 		snprintf(buf, 3, "%2d", x);
-		gdImageString(im, font, x * 16 + 2, 0, buf, white);
+		gdImageString(im, font, x * 16 + 2, 0, (unsigned char *)buf, white);
 	}
 
 	for (int z = 1; z < d.z; z++) {
 		gdFontPtr font = gdFontGetSmall();
 		char buf[3];
 		snprintf(buf, 3, "%2d", z);
-		gdImageString(im, font, 2, 16 * z, buf, white);
+		gdImageString(im, font, 2, 16 * z, (unsigned char *)buf, white);
 	}
 
 	free_textures_0(textures_0);
