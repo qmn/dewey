@@ -11,10 +11,10 @@
 #include "placer.h"
 #include "segment.h"
 
-#define OVERLAP_MARGIN 3
+#define OVERLAP_MARGIN 2
 
-#define MIN_WINDOW_WIDTH 4
-#define MIN_WINDOW_HEIGHT 4
+#define MIN_WINDOW_WIDTH 8
+#define MIN_WINDOW_HEIGHT 8
 
 #define DISPLACE_INTERCHANGE_RATIO 5.0
 
@@ -94,6 +94,16 @@ static enum placement_method generate(struct cell_placements *placements,
 	cell_a_idx = (unsigned long)random() % placements->n_placements;
 	cell_a = &(placements->placements[cell_a_idx]);
 
+	// determine the window size
+	scaling_factor = log(t) / log(t_0);
+
+	/* figure the most this placement can move */
+	window_height = lround(dimensions.z * scaling_factor);
+	window_width = lround(dimensions.x * scaling_factor);
+
+	window_height = max(window_height, MIN_WINDOW_HEIGHT);
+	window_width = max(window_width, MIN_WINDOW_WIDTH);
+
 	if (p > interchange_threshold) {
 		/* select another cell_a if we can't interchange this one */
 		while (cell_a->constraints & CONSTR_MASK_NO_INTERCHANGE) {
@@ -108,25 +118,23 @@ static enum placement_method generate(struct cell_placements *placements,
 			cell_b = &(placements->placements[cell_b_idx]);
 		} while (cell_b_idx == cell_a_idx || cell_b->constraints & CONSTR_MASK_NO_INTERCHANGE);
 
-		/* interchange the cells' placements */
-		struct coordinate tmp = cell_a->placement;
-		cell_a->placement = cell_b->placement;
-		cell_b->placement = tmp;
+		// attempt an interchange only if a window would fit both cells
+		struct coordinate center_a = cell_a->placement, center_b = cell_b->placement;
+		if (abs(center_a.x - center_b.x) <= window_width && abs(center_a.z - center_b.z) <= window_height) {
+			/* interchange the cells' placements */
+			struct coordinate tmp = cell_a->placement;
+			cell_a->placement = cell_b->placement;
+			cell_b->placement = tmp;
 
-		// printf("[placer] interchange %d (%d, %d, %d) with %d (%d, %d, %d)\n",
-		//	cell_a_idx, cell_a->placement.y, cell_a->placement.z, cell_a->placement.x,
-		//	cell_b_idx, cell_b->placement.y, cell_b->placement.z, cell_b->placement.x);
+			// printf("[placer] interchange %d (%d, %d, %d) with %d (%d, %d, %d)\n",
+			//	cell_a_idx, cell_a->placement.y, cell_a->placement.z, cell_a->placement.x,
+			//	cell_b_idx, cell_b->placement.y, cell_b->placement.z, cell_b->placement.x);
 
-		return INTERCHANGE;
+			return INTERCHANGE;
+		}
+
+		return NONE;
 	} else if (method == DISPLACE) {
-		scaling_factor = log(t) / log(t_0);
-
-		/* figure the most this placement can move */
-		window_height = lround(dimensions.z * scaling_factor);
-		window_width = lround(dimensions.x * scaling_factor);
-
-		window_height = max(window_height, MIN_WINDOW_HEIGHT);
-		window_width = max(window_width, MIN_WINDOW_WIDTH);
 
 		/* displace */
 		int dz = random() % (window_height * 2) - window_height;
@@ -581,7 +589,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 #endif
 		method = DISPLACE;
 
-		for (g = 0; g < generations; g++) {
+		for (g = 0; g < generations; ) {
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generation = %d\n", g);
 #endif
@@ -592,6 +600,8 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 			printf("[placer] made a copy\n");
 #endif
 			method_used = generate(new_placements, dimensions_piecewise_max(wanted, d), t, t_0, method);
+			if (method_used != NONE)
+				g++;
 			recenter(new_placements, NULL, 0);
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generated a new\n");

@@ -45,7 +45,7 @@ void mst_union(struct mst_ubr_node *x, struct mst_ubr_node *y)
 
 struct mst_ubr_node *mst_make_set(int n)
 {
-	struct mst_ubr_node *ubr = calloc(sizeof(struct mst_ubr_node), n);
+	struct mst_ubr_node *ubr = calloc(n, sizeof(struct mst_ubr_node));;
 
 	for (int i = 0; i < n; i++) {
 		ubr[i].parent = &ubr[i];
@@ -86,11 +86,11 @@ struct segments *create_mst(struct coordinate *locs, int n_locs)
 {
 	struct segments *mst = malloc(sizeof(struct segments));
 	mst->n_segments = n_locs - 1;
-	mst->segments = calloc(sizeof(struct segment), (mst->n_segments));
+	mst->segments = calloc(mst->n_segments, sizeof(struct segment));
 
 	struct mst_heap *h = mst_heapsort(locs, n_locs);
 
-	struct mst_ubr_node *s = calloc(sizeof(struct mst_ubr_node), n_locs);
+	struct mst_ubr_node *s = calloc(n_locs, sizeof(struct mst_ubr_node));
 	// make-set
 	for (int i = 0; i < n_locs; i++) {
 		s[i].parent = &s[i];

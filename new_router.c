@@ -339,7 +339,7 @@ unsigned int from_visitor_t(visitor_t i) {
 	return i - 1;
 }
 
-void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct mst_ubr_node *groups, int g)
+void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct mst_ubr_node *groups, int g, int n_groups)
 {
 	int g_parent = mst_find(&groups[g])->me;
 	for (int y = 0; y < m->d.y; y++) {
@@ -351,6 +351,7 @@ void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct 
 					continue;
 
 				unsigned int group_id = from_visitor_t(v);
+				assert(group_id < n_groups);
 				struct mst_ubr_node *v_g = &groups[group_id];
 				if (mst_find(v_g)->me == g_parent)
 					visited[usage_idx(m, c)] = 0;
@@ -362,13 +363,19 @@ void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct 
 // mark the usage matrix in a 3x3 zone centered on c to prevent subsequent routings
 static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
 {
-	for (int z = c.z - 1; z <= c.z + 1; z++) {
-		for (int x = c.x - 1; x <= c.x + 1; x++) {
-			struct coordinate cc = {c.y, z, x};
-			if (in_usage_bounds(m, cc))
-				continue;
+	int y1 = max(c.y, 0), y2 = min(c.y, m->d.y - 1);
+	int z1 = max(c.z - 1, 0), z2 = min(c.z + 1, m->d.z - 1);
+	int x1 = max(c.x - 1, 0), x2 = min(c.x + 1, m->d.x - 1);
 
-			usage_mark(m, cc);
+	for (int y = y1; y <= y2; y++) {
+		for (int z = z1; z <= z2; z++) {
+			for (int x = x1; x <= x2; x++) {
+				struct coordinate cc = {y, z, x};
+				if (!in_usage_bounds(m, cc))
+					continue;
+
+				usage_mark(m, cc);
+			}
 		}
 	}
 }
@@ -451,7 +458,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 	unsigned int usage_size = m->d.x * m->d.y * m->d.z;
 
 	// create group visited matrix, which is heap index + 1
-	unsigned int *visited = calloc(usage_size, sizeof(visitor_t));
+	visitor_t *visited = calloc(usage_size, sizeof(visitor_t));
 
 	// create heaps, backtrace matrices, and union-find structure
 	unsigned int n_groups = rn->n_pins;
@@ -570,7 +577,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 					heaps[my_new_group_idx] = new_heap;
 
 					// zero out all points belonging to these groups in the visited matrix
-					unmark_group_in_visited(m, visited, groups, my_new_group_idx);
+					unmark_group_in_visited(m, visited, groups, my_new_group_idx, n_groups);
 
 					// mark all points in these segments as visited
 					// add these points to the new min-heap
