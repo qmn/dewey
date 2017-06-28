@@ -263,13 +263,21 @@ static struct coordinate check_offsets[] = {
 
 static int usage_matrix_violated(struct usage_matrix *m, struct coordinate c)
 {
-	for (int j = 0; j < sizeof(check_offsets) / sizeof(struct coordinate); j++) {
-		struct coordinate cc = coordinate_add(c, check_offsets[j]);
-		if (!in_usage_bounds(m, cc))
-			continue;
+	// [yzx]2 DOES include that coordinate
+	int y1 = max(c.y - 1, 0), y2 = min(c.y, m->d.y - 1);
+	int z1 = max(c.z - 1, 0), z2 = min(c.z + 1, m->d.z - 1);
+	int x1 = max(c.x - 1, 0), x2 = min(c.x + 1, m->d.x - 1);
 
-		if (m->matrix[usage_idx(m, cc)])
-			return 1;
+	for (int y = y1; y <= y2; y++) {
+		int dy = y * m->d.z * m->d.x;
+		for (int z = z1; z <= z2; z++) {
+			int dz = z * m->d.x;
+			for (int x = x1; x <= x2; x++) {
+				int idx = dy + dz + x;
+				if (m->matrix[idx])
+					return 1;
+			}
+		}
 	}
 
 	return 0;
