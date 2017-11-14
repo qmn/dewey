@@ -629,7 +629,7 @@ static int max_net_score = -1;
 static int min_net_score = -1;
 static int total_nets = 0;
 
-static int count_routings_violations(struct cell_placements *cp, struct routings *rt)
+static int count_routings_violations(struct cell_placements *cp, struct routings *rt, FILE *log)
 {
 	total_nets = 0;
 	max_net_score = min_net_score = -1;
@@ -725,7 +725,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 					if (matrix[idx]) {
 						block_in_violation++;
 						// printf("[crv] violation\n");
-						// printf("[violation] by net %d, seg %d at (%d, %d, %d) with (%d, %d, %d)\n", i, j, c.y, c.z, c.x, cc.y, cc.z, cc.x);
+						fprintf(log, "[violation] by net %d, seg %d at (%d, %d, %d) with (%d, %d, %d)\n", i, j, c.y, c.z, c.x, cc.y, cc.z, cc.x);
 					}
 				}
 
@@ -740,7 +740,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 			int segment_score = segment_violations * 1000 + rseg->n_coords;
 			rseg->score = segment_score;
 			score += segment_score;
-			// printf("[crv] net %d seg %d score = %d\n", i, j, segment_score);
+			fprintf(log, "[crv] net %d seg %d score = %d\n", i, j, segment_score);
 		}
 
 		/* second loop actually marks segment in matrix */
@@ -808,7 +808,7 @@ int routed_net_cmp(const void *a, const void *b)
 	return routed_net_score(bb) - routed_net_score(aa);
 }
 
-static struct rip_up_set natural_selection(struct routings *rt)
+static struct rip_up_set natural_selection(struct routings *rt, FILE *log)
 {
 	int rip_up_count = 0;
 	int rip_up_size = 4;
@@ -819,6 +819,10 @@ static struct rip_up_set natural_selection(struct routings *rt)
 	int bias = score_range / 8;
 	int random_range = bias * 10;
 
+	fprintf(log, "[natural_selection] adjusted_score = score - %d (min net score) + %d (bias)\n", min_net_score, bias);
+	fprintf(log, "[natural_selection] net   rip   rand(%5d)   adj. score\n", score_range);
+	fprintf(log, "[natural_selection] ---   ---   -----------   ----------\n");
+
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		int score = 0;
 		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++)
@@ -828,8 +832,11 @@ static struct rip_up_set natural_selection(struct routings *rt)
 		int adjusted_score = score - min_net_score + bias;
 
 		if (r < adjusted_score) {
+			if (log)
+				// fprintf(log, "[natural_selection] ripping up net %d (rand(%d) = %d < %d)\n", i, random_range, r, adjusted_score);
+				fprintf(log, "[natural_selection] %3d    X         %5d   %5d\n", i, r, adjusted_score);
 #ifdef NATURAL_SELECTION_DEBUG
-			printf("[natural_selection] ripping up net %d (rand(%d) = %d < %d)\n", i, random_range, r, adjusted_score);
+			printf("[natural_selection] ripping up net %2d (rand(%d) = %d < %d)\n", i, random_range, r, adjusted_score);
 #endif
 			// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
 			rip_up[rip_up_count++] = &rt->routed_nets[i];
@@ -839,8 +846,11 @@ static struct rip_up_set natural_selection(struct routings *rt)
 			}
 		} else {
 #ifdef NATURAL_SELECTION_DEBUG
-			printf("[natural_selection] leaving net %d intact (rand(%d) = %d >= %d)\n", i, random_range, r, adjusted_score);
+			printf("[natural_selection] leaving intact net %2d (rand(%d) = %d >= %d)\n", i, random_range, r, adjusted_score);
 #endif
+			if (log)
+				fprintf(log, "[natural_selection] %3d              %5d   %5d\n", i, r, adjusted_score);
+				// fprintf(log, "[natural_selection] leaving net %d intact (rand(%d) = %d >= %d)\n", i, random_range, r, adjusted_score);
 		}
 	}
 
@@ -957,29 +967,34 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	recenter(cp, rt, 2);
 
 	int iterations = 0;
-	int violations = count_routings_violations(cp, rt);
+	int violations = 0;
 
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
+	FILE *log = fopen("new_router.log", "w");
+
+	violations = count_routings_violations(cp, rt, log);
 
 	printf("\n");
-	while ((violations = count_routings_violations(cp, rt)) > 0 && !interrupt_routing) {
-		struct rip_up_set rus = natural_selection(rt);
+	while ((violations = count_routings_violations(cp, rt, log)) > 0 && !interrupt_routing) {
+		struct rip_up_set rus = natural_selection(rt, log);
 		// sort elements by highest score
 		qsort(rus.rip_up, rus.n_ripped, sizeof(struct routed_net *), routed_net_cmp);
 
 		printf("\r[router] Iterations: %4d, Violations: %d, Segments to re-route: %d", iterations + 1, violations, rus.n_ripped);
+		fprintf(log, "\n[router] Iterations: %4d, Violations: %d, Segments to re-route: %d\n", iterations + 1, violations, rus.n_ripped);
 		fflush(stdout);
+		fflush(log);
 
 
 		for (int i = 0; i < rus.n_ripped; i++) {
-			// printf("[router] rerouting net %d\n", rus.rip_up[i]->net);
+			fprintf(log, "[router] Ripping up net %d (score %d)\n", rus.rip_up[i]->net, routed_net_score(rus.rip_up[i]));
 			rip_up(rus.rip_up[i]);
 		}
 
 		for (int i = 0; i < rus.n_ripped; i++) {
 			recenter(cp, rt, 2);
-			// printf("[router] Rerouting a segment in net %d with score %d\n", rus.rip_up[i]->net->net, rus.rip_up[i]->score);
+			fprintf(log, "[router] Rerouting net %d\n", rus.rip_up[i]->net);
 			maze_reroute(cp, rt, rus.rip_up[i], 2);
 			// print_routed_segment(rus.rip_up[i]);
 		}
@@ -993,6 +1008,8 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	signal(SIGINT, SIG_DFL);
 
 	printf("\n[router] Solution found! Optimizing...\n");
+	fprintf(log, "\n[router] Solution found! Optimizing...\n");
+	fclose(log);
 
 	for (net_t i = 1; i < rt->n_routed_nets; i++) {
 		rip_up(&rt->routed_nets[i]);
