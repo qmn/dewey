@@ -438,6 +438,7 @@ struct routed_segment make_segment_from_backtrace(struct usage_matrix *m, enum b
 
 /* MAZE REROUTE */
 
+/* see silk.md for a description of this algorithm */
 void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
 {
 	assert(rn->n_routed_segments == 0);
@@ -771,6 +772,57 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 	free(matrix);
 
 	return total_violations;
+}
+
+void mark_routing_congestion(struct coordinate c, struct dimensions d, unsigned int *congestion, unsigned char *visited)
+{
+	int margin = 1;
+	int z_start = max(c.z - margin, 0);
+	int z_end = min(c.z + margin, d.z - 1);
+	int x_start = max(c.x - margin, 0);
+	int x_end = min(c.x + margin, d.x - 1);
+
+	for (int z = z_start; z <= z_end; z++)
+		for (int x = x_start; x <= x_end; x++)
+			if (!visited[z * d.x + x]++)
+				congestion[z * d.x + x]++;
+}
+
+/* create a table showing the congestion of a routing by showing where
+   nets are currently being routed */
+void print_routing_congestion(struct routings *rt)
+{
+	struct dimensions d = compute_routings_dimensions(rt);
+	unsigned int *congestion = calloc(d.x * d.z, sizeof(unsigned int));
+
+	// avoid marking a net over itself
+	unsigned char *visited = calloc(d.x * d.z, sizeof(unsigned char));
+
+	for (net_t i = 1; i < rt->n_routed_nets; i++)
+		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
+			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++)
+				mark_routing_congestion(rt->routed_nets[i].routed_segments[j].coords[k], d, congestion, visited);
+
+			memset(visited, 0, sizeof(unsigned char) * d.x * d.z);
+		}
+
+	free(visited);
+
+	printf("[routing_congestion] Routing congestion appears below:\n");
+	printf("[routing_congestion] Z X ");
+	for (int x = 0; x < d.x; x++)
+		printf("%3d ", x);
+	printf("\n");
+
+	for (int z = 0; z < d.z; z++) {
+		printf("[routing_congestion] %3d ", z);
+		for (int x = 0; x < d.x; x++)
+			printf("%3d ", congestion[z * d.x + x]);
+		printf("\n");
+	}
+	printf("\n");
+
+	free(congestion);
 }
 
 /* rip-up and natural selection routines */
