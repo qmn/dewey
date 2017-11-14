@@ -371,8 +371,6 @@ static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
 		for (int z = z1; z <= z2; z++) {
 			for (int x = x1; x <= x2; x++) {
 				struct coordinate cc = {y, z, x};
-				if (!in_usage_bounds(m, cc))
-					continue;
 
 				usage_mark(m, cc);
 			}
@@ -440,13 +438,13 @@ struct routed_segment make_segment_from_backtrace(struct usage_matrix *m, enum b
 
 /* MAZE REROUTE */
 
-void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed_net *rn)
+void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
 {
 	assert(rn->n_routed_segments == 0);
 	assert(rn->routed_segments == NULL);
 	assert(rn->n_pins > 1);
 
-	struct usage_matrix *m = create_usage_matrix(cp, rt, 2);
+	struct usage_matrix *m = create_usage_matrix(cp, rt, xz_margin);
 	for (int i = 0;  i < rn->n_pins; i++)
 		assert(in_usage_bounds(m, rn->pins[i].coordinate));
 
@@ -794,18 +792,20 @@ void rip_up(struct routed_net *rn)
 	rn->n_routed_segments = 0;
 }
 
+int routed_net_score(struct routed_net *rn)
+{
+	int s = 0;
+	for (int i = 0; i < rn->n_routed_segments; i++)
+		s += rn->routed_segments[i].score;
+	return s;
+}
+
 int routed_net_cmp(const void *a, const void *b)
 {
 	struct routed_net *aa = *(struct routed_net **)a;
 	struct routed_net *bb = *(struct routed_net **)b;
-	int score_a = 0, score_b = 0;
 
-	for (int i = 0; i < aa->n_routed_segments; i++)
-		score_a += aa->routed_segments[i].score;
-	for (int i = 0; i < bb->n_routed_segments; i++)
-		score_b += bb->routed_segments[i].score;
-
-	return score_b - score_a;
+	return routed_net_score(bb) - routed_net_score(aa);
 }
 
 static struct rip_up_set natural_selection(struct routings *rt)
@@ -980,7 +980,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 		for (int i = 0; i < rus.n_ripped; i++) {
 			recenter(cp, rt, 2);
 			// printf("[router] Rerouting a segment in net %d with score %d\n", rus.rip_up[i]->net->net, rus.rip_up[i]->score);
-			maze_reroute(cp, rt, rus.rip_up[i]);
+			maze_reroute(cp, rt, rus.rip_up[i], 2);
 			// print_routed_segment(rus.rip_up[i]);
 		}
 		free(rus.rip_up);
@@ -996,8 +996,8 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 	for (net_t i = 1; i < rt->n_routed_nets; i++) {
 		rip_up(&rt->routed_nets[i]);
-		maze_reroute(cp, rt, &rt->routed_nets[i]);
 		recenter(cp, rt, 2);
+		maze_reroute(cp, rt, &rt->routed_nets[i], 2);
 	}
 
 	printf("[router] Routing complete!\n");

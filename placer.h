@@ -48,6 +48,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *,
 
 struct cell_placements *copy_placements(struct cell_placements *);
 void placements_displace(struct cell_placements *, struct coordinate disp);
+void placements_reconstrain(struct cell_placements *);
 void free_cell_placements(struct cell_placements *);
 
 struct cell_placements *placer_initial_place(struct blif *, struct cell_library *);

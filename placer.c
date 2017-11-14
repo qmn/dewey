@@ -60,6 +60,19 @@ static struct dimensions compute_unconstrained_placement_dimensions(struct cell_
 	return d;
 }
 
+void placements_reconstrain(struct cell_placements *cp)
+{
+	struct dimensions d = compute_unconstrained_placement_dimensions(cp);
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct placement *p = &(cp->placements[i]);
+
+		if (p->constraints & CONSTR_KEEP_LEFT)
+			p->placement.x = 0;
+		else if (p->constraints & CONSTR_KEEP_RIGHT)
+			p->placement.x = d.x + OVERLAP_MARGIN;
+	}
+}
+
 /*
  * Given an old placement, generate a new placement by either switching
  * the location of two cells or displacing a cell or rotating it. This
