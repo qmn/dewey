@@ -792,12 +792,13 @@ struct cell_placements *placer_initial_place(struct blif *blif, struct cell_libr
 {
 	struct cell_placements *cp = map_blif_to_cell_library(blif, cl);
 
-	int margin = 6;
+	int x_margin = 6;
+	int z_margin = 6;
 	int w = roundl(sqrt(cp->n_placements));
 
-	for (int i = 0, x = 0; i < cp->n_placements; i++, x += margin) {
-		cp->placements[i].placement.x = x % (margin * w);
-		cp->placements[i].placement.z = x / (margin * w);
+	for (int i = 0, x = 0; i < cp->n_placements; i++, x += x_margin) {
+		cp->placements[i].placement.x = x % (x_margin * w);
+		cp->placements[i].placement.z = x / (x_margin * w) * z_margin;
 	}
 
 	return cp;
