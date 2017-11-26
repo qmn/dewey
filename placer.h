@@ -24,7 +24,11 @@ struct placement {
 	/* a mapping of net names to net_t and should be the same size as cell->n_pins */
 	net_t *nets;
 
+	/* bit-vector of constraints; default CONSTR_NONE */
 	unsigned long constraints;
+
+	/* margin in X and Z directions to other cells */
+	unsigned int margin;
 };
 
 struct cell_placements {

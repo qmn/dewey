@@ -11,7 +11,8 @@
 #include "placer.h"
 #include "segment.h"
 
-#define OVERLAP_MARGIN 2
+#define MIN_MARGIN 2
+#define EDGE_MARGIN 5
 
 #define MIN_WINDOW_WIDTH 8
 #define MIN_WINDOW_HEIGHT 8
@@ -69,7 +70,7 @@ void placements_reconstrain(struct cell_placements *cp)
 		if (p->constraints & CONSTR_KEEP_LEFT)
 			p->placement.x = 0;
 		else if (p->constraints & CONSTR_KEEP_RIGHT)
-			p->placement.x = d.x + OVERLAP_MARGIN;
+			p->placement.x = d.x + EDGE_MARGIN;
 	}
 }
 
@@ -159,7 +160,7 @@ static enum placement_method generate(struct cell_placements *placements,
 			cell_a->placement.x = 0;
 		} else if (cell_a->constraints & CONSTR_KEEP_RIGHT) {
 			struct dimensions dd = compute_unconstrained_placement_dimensions(placements);
-			cell_a->placement.x = dd.x + OVERLAP_MARGIN; // plus margin
+			cell_a->placement.x = dd.x + EDGE_MARGIN; // plus margin
 		} else {
 			cell_a->placement.x += dx;
 		}
@@ -283,8 +284,8 @@ static int compute_overlap_penalty(struct cell_placements *cp)
 			c.y, c.z, c.x, pd.y, pd.z, pd.x);
 */
 
-		int z1 = max(0, c.z - OVERLAP_MARGIN), z2 = min(d.z, cell_z + OVERLAP_MARGIN);
-		int x1 = max(0, c.x - OVERLAP_MARGIN), x2 = min(d.x, cell_x + OVERLAP_MARGIN);
+		int z1 = max(0, c.z - p.margin), z2 = min(d.z, cell_z + p.margin);
+		int x1 = max(0, c.x - p.margin), x2 = min(d.x, cell_x + p.margin);
 
 		/* if another cell is there, increase the penalty */
 		for (int y = c.y; y < cell_y; y++) {
@@ -771,6 +772,8 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 
 		p.constraints = CONSTR_NONE;
 
+		p.margin = EDGE_MARGIN;
+
 		placements->placements[cell_count++] = p;
 	}
 
@@ -792,8 +795,8 @@ struct cell_placements *placer_initial_place(struct blif *blif, struct cell_libr
 {
 	struct cell_placements *cp = map_blif_to_cell_library(blif, cl);
 
-	int x_margin = 6;
-	int z_margin = 6;
+	int x_margin = 4;
+	int z_margin = 4;
 	int w = roundl(sqrt(cp->n_placements));
 
 	for (int i = 0, x = 0; i < cp->n_placements; i++, x += x_margin) {
