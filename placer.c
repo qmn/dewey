@@ -12,7 +12,7 @@
 #include "segment.h"
 
 #define MIN_MARGIN 2
-#define EDGE_MARGIN 5
+#define EDGE_MARGIN MIN_MARGIN
 
 #define MIN_WINDOW_WIDTH 8
 #define MIN_WINDOW_HEIGHT 8
@@ -112,8 +112,8 @@ static enum placement_method generate(struct cell_placements *placements,
 	scaling_factor = log(t) / log(t_0);
 
 	/* figure the most this placement can move */
-	window_height = lround(dimensions.z * scaling_factor);
-	window_width = lround(dimensions.x * scaling_factor);
+	window_height = max(lround(dimensions.z * scaling_factor), 20);
+	window_width = max(lround(dimensions.x * scaling_factor), 20);
 
 	window_height = max(window_height, MIN_WINDOW_HEIGHT);
 	window_width = max(window_width, MIN_WINDOW_WIDTH);
@@ -732,7 +732,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 		struct coordinate c = {0, 0, 0};
 		net_t *nets = malloc(sizeof(net_t));
 		nets[0] = blif->inputs[i];
-		struct placement p = {input_pin, c, 0, nets, CONSTR_NO_ROTATE | CONSTR_KEEP_LEFT};
+		struct placement p = {input_pin, c, 0, nets, CONSTR_NO_ROTATE | CONSTR_KEEP_LEFT, EDGE_MARGIN};
 		placements->placements[cell_count++] = p;
 	}
 
@@ -740,7 +740,7 @@ static struct cell_placements *map_blif_to_cell_library(struct blif *blif, struc
 		struct coordinate c = {0, 0, 0};
 		net_t *nets = malloc(sizeof(net_t));
 		nets[0] = blif->outputs[i];
-		struct placement p = {output_pin, c, 0, nets, CONSTR_NO_ROTATE | CONSTR_KEEP_RIGHT};
+		struct placement p = {output_pin, c, 0, nets, CONSTR_NO_ROTATE | CONSTR_KEEP_RIGHT, EDGE_MARGIN};
 		placements->placements[cell_count++] = p;
 	}
 
@@ -795,8 +795,8 @@ struct cell_placements *placer_initial_place(struct blif *blif, struct cell_libr
 {
 	struct cell_placements *cp = map_blif_to_cell_library(blif, cl);
 
-	int x_margin = 4;
-	int z_margin = 4;
+	int x_margin = 5;
+	int z_margin = 5;
 	int w = roundl(sqrt(cp->n_placements));
 
 	for (int i = 0, x = 0; i < cp->n_placements; i++, x += x_margin) {
