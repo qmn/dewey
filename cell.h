@@ -16,6 +16,8 @@ struct placed_pin {
 	struct logic_cell *cell;
 	struct logic_cell_pin *cell_pin;
 	net_t net;
+
+	struct routed_segment *parent;
 };
 
 struct logic_cell_pin {

@@ -27,6 +27,12 @@ struct routed_segment {
 	int score;
 
 	struct routed_net *net;
+
+	struct routed_segment *parent;
+	int n_child_segments;
+	struct routed_segment **child_segments;
+	int n_child_pins;
+	struct placed_pin **child_pins;
 };
 
 struct routed_net {
