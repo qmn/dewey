@@ -67,7 +67,7 @@ static struct mst_heap *mst_heapsort(struct coordinate *locs, int n_locs)
 	h->n_nodes = n_locs * (n_locs - 1) / 2;
 	h->nodes = calloc(h->n_nodes, sizeof(struct mst_heap_node));
 
-	/* create weight matrix; x > y */
+	// create weight matrix; x > y
 	int c = 0;
 	for (int y = 0; y < n_locs; y++) {
 		for (int x = y + 1; x < n_locs; x++) {
@@ -76,7 +76,7 @@ static struct mst_heap *mst_heapsort(struct coordinate *locs, int n_locs)
 		}
 	}
 
-	/* surprise! use qsort instead */
+	// surprise! use qsort instead
 	qsort(h->nodes, h->n_nodes, sizeof(struct mst_heap_node), mst_heapsort_cmp);
 
 	return h;

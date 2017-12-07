@@ -26,13 +26,19 @@ void print_routed_segment(struct routed_segment *rseg)
 	printf("\n");
 }
 
+void print_routed_net(struct routed_net *rn)
+{
+	int j = 0;
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next, j++) {
+		printf("[maze_route] net %d, segment %d: ", rn->net, j);
+		print_routed_segment(&rsh->rseg);
+	}
+}
+
 void print_routings(struct routings *rt)
 {
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
-			printf("[maze_route] net %d, segment %d: ", i, j);
-			print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
-		}
+		print_routed_net(&rt->routed_nets[i]);
 	}
 }
 
@@ -42,6 +48,8 @@ void free_routings(struct routings *rt)
 	free(rt);
 }
 
+/* the pointer arithmetic to copy parent/child references works because
+   they point exclusively into the routings structure and its sub-structures. */
 struct routings *copy_routings(struct routings *old_rt)
 {
 	struct routings *new_rt = malloc(sizeof(struct routings));
@@ -56,11 +64,16 @@ struct routings *copy_routings(struct routings *old_rt)
 		rn->n_pins = on.n_pins;
 		rn->pins = malloc(rn->n_pins * sizeof(struct placed_pin));
 		memcpy(rn->pins, on.pins, sizeof(struct placed_pin) * rn->n_pins);
+		rn->routed_segments = NULL;
+/*
+		for (int j = 0; j < rn->n_pins; j++)
+			rn->pins[j].parent = on.pins[j].parent - on.routed_segments + rn->routed_segments;
+*/
 
-		rn->n_routed_segments = on.n_routed_segments;
-		rn->routed_segments = malloc(sizeof(struct routed_segment) * rn->n_routed_segments);
-		
-		/* for each routed_segment in routed_net */
+		abort(); // TODO: implement copying segments
+
+/*
+		// for each routed_segment in routed_net
 		for (int j = 0; j < rn->n_routed_segments; j++) {
 			struct routed_segment *rseg = &(rn->routed_segments[j]);
 			struct routed_segment old_rseg = on.routed_segments[j];
@@ -70,7 +83,18 @@ struct routings *copy_routings(struct routings *old_rt)
 			memcpy(rseg->coords, old_rseg.coords, sizeof(struct coordinate) * rseg->n_coords);
 			rseg->score = old_rseg.score;
 			rseg->net = rn;
+			rseg->n_child_segments = old_rseg.n_child_segments;
+			rseg->n_child_pins = old_rseg.n_child_pins;
+
+			// copy parent, child segments, and child pins
+			rseg->parent = old_rseg.parent - on.routed_segments + rn->routed_segments;
+			for (int k = 0; k < rseg->n_child_segments; k++)
+				rseg->child_segments[k] = old_rseg.child_segments[k] - on.routed_segments + rn->routed_segments;
+			for (int k = 0; k < rseg->n_child_pins; k++)
+				rseg->child_pins[k] = old_rseg.child_pins[k] - on.pins + rn->pins;
+			
 		}
+*/
 	}
 
 	return new_rt;
@@ -80,8 +104,8 @@ void routings_displace(struct routings *rt, struct coordinate disp)
 {
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net *rn = &(rt->routed_nets[i]);
-		for (int j = 0; j < rn->n_routed_segments; j++) {
-			struct routed_segment *rseg = &(rn->routed_segments[j]);
+		for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+			struct routed_segment *rseg = &rsh->rseg;
 			for (int k = 0; k < rseg->n_coords; k++) {
 				rseg->coords[k] = coordinate_add(rseg->coords[k], disp);
 			}
@@ -103,8 +127,8 @@ struct dimensions compute_routings_dimensions(struct routings *rt)
 	struct coordinate d = {0, 0, 0};
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net rn = rt->routed_nets[i];
-		for (int j = 0; j < rn.n_routed_segments; j++) {
-			struct routed_segment rseg = rn.routed_segments[j];
+		for (struct routed_segment_head *rsh = rn.routed_segments; rsh; rsh = rsh->next) {
+			struct routed_segment rseg = rsh->rseg;
 			for (int k = 0; k < rseg.n_coords; k++) {
 				struct coordinate c = rseg.coords[k];
 				d = coordinate_piecewise_max(d, c);
@@ -196,6 +220,7 @@ struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct rout
 
 	// size the usage matrix and allow for routing on y=0 and y=3
 	struct dimensions d = dimensions_piecewise_max(compute_placement_dimensions(cp), compute_routings_dimensions(rt));
+	assert(d.x > 0 && d.x < 1000 && d.z > 0 && d.z < 1000);
 	d.y = max(d.y, 4);
 	d.z += xz_margin;
 	d.x += xz_margin;
@@ -232,10 +257,10 @@ struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct rout
 
 	/* routings */
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
-			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++) {
+		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
+			for (int k = 0; k < rsh->rseg.n_coords; k++) {
 				// here
-				struct coordinate c = rt->routed_nets[i].routed_segments[j].coords[k];
+				struct coordinate c = rsh->rseg.coords[k];
 				usage_mark(m, c);
 
 				// below
@@ -341,6 +366,7 @@ unsigned int from_visitor_t(visitor_t i) {
 	return i - 1;
 }
 
+/*
 void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct mst_ubr_node *groups, int g, int n_groups)
 {
 	int g_parent = mst_find(&groups[g])->me;
@@ -361,6 +387,7 @@ void unmark_group_in_visited(struct usage_matrix *m, visitor_t *visited, struct 
 		}
 	}
 }
+*/
 
 // mark the usage matrix in a 3x3 zone centered on c to prevent subsequent routings
 static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
@@ -400,7 +427,7 @@ struct routing_group {
 	/* cost matrix for this routing instance */
 	unsigned int *cost;
 
-	/* at most one of these can be non-null; */
+	/* at most one of these can be non-null */
 	struct routed_segment *origin_segment;
 	struct placed_pin *origin_pin;
 };
@@ -438,6 +465,7 @@ void init_routing_group_with_pin(struct routing_group *rg, struct usage_matrix *
 	visited[usage_idx(m, extend_pin(p))] = rg;
 
 	rg->origin_pin = p;
+	rg->origin_segment = NULL;
 }
 
 void init_routing_group_with_segment(struct routing_group *rg, struct usage_matrix *m, struct routed_segment *rseg, struct routing_group **visited)
@@ -453,8 +481,10 @@ void init_routing_group_with_segment(struct routing_group *rg, struct usage_matr
 		visited[usage_idx(m, c)] = rg;
 	}
 
-	for (int i = 0; i < rseg->n_child_segments; i++)
+	for (int i = 0; i < rseg->n_child_segments; i++) {
+		assert(rseg != rseg->child_segments[i]);
 		init_routing_group_with_segment(rg, m, rseg->child_segments[i], visited);
+	}
 
 	for (int i = 0; i < rseg->n_child_pins; i++)
 		init_routing_group_with_pin(rg, m, rseg->child_pins[i], visited);
@@ -463,7 +493,7 @@ void init_routing_group_with_segment(struct routing_group *rg, struct usage_matr
 	rg->origin_pin = NULL; // reset any origin_pin that may have been set
 }
 
-// each routing group has a originating child or segment
+// each routing group has an originating child or segment
 void routed_segment_add_child(struct routed_segment *rseg, struct routing_group *child)
 {
 	assert(!(child->origin_pin && child->origin_segment));
@@ -471,10 +501,13 @@ void routed_segment_add_child(struct routed_segment *rseg, struct routing_group 
 		rseg->child_pins = realloc(rseg->child_pins, sizeof(struct placed_pin *) * ++rseg->n_child_pins);
 		rseg->child_pins[rseg->n_child_pins - 1] = child->origin_pin;
 		child->origin_pin->parent = rseg;
+
 	} else if (child->origin_segment) {
 		rseg->child_segments = realloc(rseg->child_segments, sizeof(struct routed_segment *) * ++rseg->n_child_segments);
 		rseg->child_segments[rseg->n_child_segments - 1] = child->origin_segment;
+		assert(rseg != child->origin_segment);
 		child->origin_segment->parent = rseg;
+
 	}
 }
 
@@ -519,9 +552,14 @@ static int extend_coords_from_backtrace(struct routed_segment *rseg, struct usag
 {
 	assert(rseg);
 	assert(rseg->coords);
+	assert(rseg->n_coords < coords_size);
 
 	struct coordinate curr = c;
 	rseg->coords[rseg->n_coords++] = curr;
+	if (rseg->n_coords >= coords_size) {
+		coords_size *= 2;
+		rseg->coords = realloc(rseg->coords, coords_size * sizeof(struct coordinate));
+	}
 
 #if ROUTER_PREFER_CONTINUE_IN_DIRECTION
 	int prev_bt = BT_NONE;
@@ -564,8 +602,8 @@ static void reverse_coords(struct coordinate *coords, int n_coords)
 	struct coordinate tmp;
 	for (int i = 0; i < n_coords / 2; i++) {
 		tmp = coords[i];
-		coords[i] = coords[n_coords - i];
-		coords[n_coords - i] = tmp;
+		coords[i] = coords[n_coords - 1 - i];
+		coords[n_coords - i - 1] = tmp;
 	}
 }
 
@@ -583,12 +621,20 @@ struct routed_segment make_segment_from_points(struct usage_matrix *m,
 
 	// create points from A side, and reverse these
 	coords_size = extend_coords_from_backtrace(&rseg, m, a, a_bt, coords_size);
-	rseg.seg.start = rseg.coords[rseg.n_coords - 1];
 	reverse_coords(rseg.coords, rseg.n_coords);
+	rseg.seg.start = rseg.coords[0];
 
 	// create points from B side, and do not reverse these
 	extend_coords_from_backtrace(&rseg, m, b, b_bt, coords_size);
 	rseg.seg.end = rseg.coords[rseg.n_coords - 1];
+
+/*
+	printf("[msfp] made segment: ");
+	for (int i = 0; i < rseg.n_coords; i++) {
+		struct coordinate c = rseg.coords[i];
+		printf("(%d, %d, %d) ", c.y, c.z, c.x);
+	}
+*/
 
 	return rseg;
 }
@@ -600,9 +646,75 @@ void free_routing_group(struct routing_group *rg)
 	free(rg->cost);
 }
 
-/* see silk.md for a description of this algorithm
-   accepts a routed_net object, with any combination of previously-routed
-   segments and unrouted pins and uses Lee's algorithm to connect them */
+int segment_routed(struct routed_segment *rseg)
+{
+	struct segment seg = rseg->seg;
+	struct coordinate s = seg.start, e = seg.end;
+	return (s.y | s.z | s.x | e.y | e.z | e.x);
+}
+
+/*
+// find the first non-routed segment entry in *rn and add it there,
+// returning the final place it returned it at, or extends the routed_segments
+// array to accommodate it
+struct routed_segment *add_segment(struct routed_net *rn, struct routed_segment rseg)
+{
+	rseg.net = rn;
+	for (int i = 0; i < rn->sz_routed_segments; i++) {
+		if (!segment_routed(&rn->routed_segments[i])) {
+			rn->routed_segments[i] = rseg;
+			rn->n_routed_segments++;
+			return &(rn->routed_segments[i]);
+		}
+	}
+
+	// a search for an empty entry failed, extend the array
+	assert(rn->n_routed_segments == rn->sz_routed_segments);
+	rn->routed_segments = realloc(rn->routed_segments, sizeof(struct routed_segment) * ++rn->sz_routed_segments);
+	rn->routed_segments[rn->n_routed_segments++] = rseg;
+
+	return &(rn->routed_segments[rn->n_routed_segments - 1]);
+}
+*/
+
+int count_groups_to_merge(struct routed_net *rn)
+{
+	int count = 0;
+	for (int i = 0; i < rn->n_pins; i++) {
+		struct placed_pin *p = &rn->pins[i];
+		if (!p->parent)
+			count++;
+	}
+
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		struct routed_segment *rseg = &rsh->rseg;
+		if (!rseg->parent && segment_routed(rseg))
+			count++;
+	}
+
+	return count;
+}
+
+void routed_net_add_segment_node(struct routed_net *rn, struct routed_segment_head *rsh)
+{
+	assert(rsh->next == NULL);
+
+	struct routed_segment_head *tail = rn->routed_segments;
+	if (!tail) {
+		rn->routed_segments = rsh;
+		return;
+	}
+
+	while (tail->next)
+		tail = tail->next;
+
+	tail->next = rsh;
+}
+
+// see silk.md for a description of this algorithm
+// accepts a routed_net object, with any combination of previously-routed
+// segments and unrouted pins and uses Lee's algorithm to connect them
+// assumes that all routed_segments are contiguously placed
 void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
 {
 	if (rn->n_pins <= 1)
@@ -613,28 +725,18 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 	unsigned int usage_size = USAGE_SIZE(m);
 	for (int i = 0; i < rn->n_pins; i++)
 		assert(in_usage_bounds(m, rn->pins[i].coordinate));
-	for (int i = 0; i < rn->n_routed_segments; i++)
-		for (int j = 0; j < rn->routed_segments[i].n_coords; j++)
-			assert(in_usage_bounds(m, rn->routed_segments[i].coords[j]));
-
-	// figure out the number of remaining segments to reroute
-	// an empty net has n_pins to connect, leading to a total of (n_pins - 1) segments
-	int remaining_groups = rn->n_pins - 1;
-	if (!rn->routed_segments) {
-		rn->routed_segments = calloc(rn->n_pins - 1, sizeof(struct routed_segment));
-		rn->n_routed_segments = 0;
-	} else {
-		remaining_groups -= rn->n_routed_segments;
-	}
-	assert(remaining_groups >= 1);
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
+		for (int j = 0; j < rsh->rseg.n_coords; j++)
+			assert(in_usage_bounds(m, rsh->rseg.coords[j]));
 
 	// track visiting routing_groups; NULL if not-yet visited
 	struct routing_group **visited = calloc(usage_size, sizeof(struct routing_group *));
 
-	// at most we can have n_pins pins and (n_pins - 1) segments
 	// at fewest we can have just one remaining group
 	int n_groups = 0;
-	struct routing_group **rgs = calloc(2 * remaining_groups - 1, sizeof(struct routing_group *));
+	int total_groups = count_groups_to_merge(rn) * 2 - 1;
+	struct routing_group **rgs = calloc(total_groups, sizeof(struct routing_group *));
+
 	// initialize parent-less pins
 	for (int i = 0; i < rn->n_pins; i++) {
 		struct placed_pin *p = &rn->pins[i];
@@ -645,24 +747,25 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 			assert(!pin_rg->origin_segment);
 		}
 	}
+
 	// intialize parent-less segments
-	for (int i = 0; i < rn->n_routed_segments; i++) {
-		struct routed_segment *rseg = &rn->routed_segments[i];
-		if (!rseg->parent) {
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		struct routed_segment *rseg = &rsh->rseg;
+		if (!rseg->parent && segment_routed(rseg)) {
 			struct routing_group *seg_rg = alloc_routing_group(usage_size);
 			init_routing_group_with_segment(seg_rg, m, rseg, visited);
 			rgs[n_groups++] = seg_rg;
 			assert(!seg_rg->origin_pin);
 		}
 	}
-	printf("[maze_reroute] n_groups=%d, n_routed_segments=%d, n_pins=%d\n", n_groups, rn->n_routed_segments, rn->n_pins);
-	assert(n_groups + rn->n_routed_segments == rn->n_pins);
+
+	int remaining_groups = n_groups;
 
 	// THERE CAN ONLY BE ONE-- i mean,
 	// repeat until one group remains
 	while (remaining_groups > 1) {
 		// select the smallest non-empty heap that is also its own parent (rg->parent = rg)
-		struct routing_group *rg = find_smallest_heap(rgs, n_groups);
+		struct routing_group *rg = find_smallest_heap(rgs, total_groups);
 		assert(rg == rg->parent);
 
 		// expand this smallest heap
@@ -696,19 +799,26 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 					continue;
 
 				// create a new segment arising from the merging of these two routing groups
-				struct routed_segment rseg = make_segment_from_points(m, c, cc, rg->bt, visited_rg->bt);
-				rseg.net = rn;
-				routed_segment_add_child(&rseg, rg);
-				routed_segment_add_child(&rseg, visited_rg);
-				rn->routed_segments[rn->n_routed_segments++] = rseg;
+				struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
+				rsh->next = NULL;
+				rsh->rseg = make_segment_from_points(m, c, cc, rg->bt, visited_rg->bt);
+				rsh->rseg.net = rn;
+				routed_net_add_segment_node(rn, rsh);
+
+				struct routed_segment *rseg = &rsh->rseg;
+				assert(rseg);
+				routed_segment_add_child(rseg, rg);
+				routed_segment_add_child(rseg, visited_rg);
 
 				// create a new routing group based on this segment
 				struct routing_group *new_rg = alloc_routing_group(USAGE_SIZE(m));
 				rg->parent = visited_rg->parent = new_rg;
-				init_routing_group_with_segment(new_rg, m, &rseg, visited);
+				init_routing_group_with_segment(new_rg, m, rseg, visited);
 				assert(!new_rg->origin_pin);
 
 				rgs[n_groups++] = new_rg;
+
+				assert(n_groups <= total_groups);
 
 				remaining_groups--;
 				break;
@@ -730,6 +840,8 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 
 		}
 	}
+	// printf("[maze_reroute] n_routed_segments=%d, n_pins=%d\n", rn->n_routed_segments, rn->n_pins);
+	// assert(rn->n_routed_segments >= rn->n_pins - 1);
 	// printf("[maze_route] done\n");
 }
 
@@ -790,13 +902,12 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 	/* segments */
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net *rnet = &(rt->routed_nets[i]);
-		total_nets += rnet->n_routed_segments;
 		int score = 0;
 
-		for (int j = 0; j < rnet->n_routed_segments; j++) {
+		for (struct routed_segment_head *rsh = rnet->routed_segments; rsh; rsh = rsh->next, total_nets++) {
 			int segment_violations = 0;
 
-			struct routed_segment *rseg = &(rnet->routed_segments[j]);
+			struct routed_segment *rseg = &rsh->rseg;
 
 			for (int k = 0; k < rseg->n_coords; k++) {
 				struct coordinate c = rseg->coords[k];
@@ -835,7 +946,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 					if (matrix[idx]) {
 						block_in_violation++;
 						// printf("[crv] violation\n");
-						fprintf(log, "[violation] by net %d, seg %d at (%d, %d, %d) with (%d, %d, %d)\n", i, j, c.y, c.z, c.x, cc.y, cc.z, cc.x);
+						fprintf(log, "[violation] by net %d, seg %p at (%d, %d, %d) with (%d, %d, %d)\n", i, (void *)rseg, c.y, c.z, c.x, cc.y, cc.z, cc.x);
 					}
 				}
 
@@ -850,12 +961,12 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 			int segment_score = segment_violations * 1000 + rseg->n_coords;
 			rseg->score = segment_score;
 			score += segment_score;
-			fprintf(log, "[crv] net %d seg %d score = %d\n", i, j, segment_score);
+			fprintf(log, "[crv] net %d seg %p score = %d\n", i, (void *)rseg, segment_score);
 		}
 
 		/* second loop actually marks segment in matrix */
-		for (int j = 0; j < rnet->n_routed_segments; j++) {
-			struct routed_segment *rseg = &(rnet->routed_segments[j]);
+		for (struct routed_segment_head *rsh = rnet->routed_segments; rsh; rsh = rsh->next) {
+			struct routed_segment *rseg = &rsh->rseg;
 
 			for (int k = 0; k < rseg->n_coords; k++) {
 				struct coordinate c = rseg->coords[k];
@@ -908,9 +1019,9 @@ void print_routing_congestion(struct routings *rt)
 	unsigned char *visited = calloc(d.x * d.z, sizeof(unsigned char));
 
 	for (net_t i = 1; i < rt->n_routed_nets; i++)
-		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
-			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++)
-				mark_routing_congestion(rt->routed_nets[i].routed_segments[j].coords[k], d, congestion, visited);
+		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
+			for (int k = 0; k < rsh->rseg.n_coords; k++)
+				mark_routing_congestion(rsh->rseg.coords[k], d, congestion, visited);
 
 			memset(visited, 0, sizeof(unsigned char) * d.x * d.z);
 		}
@@ -937,81 +1048,141 @@ void print_routing_congestion(struct routings *rt)
 /* rip-up and natural selection routines */
 struct rip_up_set {
 	int n_ripped;
-	struct routed_net **rip_up;
+	struct routed_segment **rip_up;
 };
 
-void rip_up(struct routed_net *rn)
+struct routed_segment_head *remove_rsh(struct routed_segment *rseg)
 {
-	for (int i = 0; i < rn->n_routed_segments; i++) {
-		struct routed_segment *rseg = &rn->routed_segments[i];
-		rseg->n_coords = 0;
-		free(rseg->coords);
-		rseg->coords = NULL;
+	struct routed_net *rn = rseg->net;
+	// find the previous element to delete this element
+	struct routed_segment_head *node = NULL;
+
+	if (!rn->routed_segments)
+		return NULL;
+
+	if (&(rn->routed_segments->rseg) == rseg) {
+		node = rn->routed_segments;
+		rn->routed_segments = node->next;
+	} else {
+		struct routed_segment_head *prev;
+		for (prev = rn->routed_segments; prev; prev = prev->next) {
+			if (&(prev->next->rseg) == rseg)
+				break;
+		}
+		assert(prev);
+
+		node = prev->next;
+		prev->next = node->next;
 	}
-	free(rn->routed_segments);
-	rn->routed_segments = NULL;
-	rn->n_routed_segments = 0;
+
+	node->next = NULL;
+	return node;
 }
 
-int routed_net_score(struct routed_net *rn)
+// it's important to maintain the order of the routed segments in the routed
+// net because the rip_up set struct relies on pointers
+void rip_up_segment(struct routed_segment *rseg)
 {
-	int s = 0;
-	for (int i = 0; i < rn->n_routed_segments; i++)
-		s += rn->routed_segments[i].score;
-	return s;
+	// unlink segments' parent pointer here
+	for (int i = 0; i < rseg->n_child_segments; i++) {
+		struct routed_segment *child_rseg = rseg->child_segments[i];
+		child_rseg->parent = NULL;
+	}
+	if (rseg->child_segments)
+		free(rseg->child_segments);
+	rseg->child_segments = NULL;
+	rseg->n_child_segments = 0;
+
+	// unlink pins' parent pointer here
+	for (int i = 0; i < rseg->n_child_pins; i++) {
+		struct placed_pin *child_pin = rseg->child_pins[i];
+		child_pin->parent = NULL;
+	}
+	if (rseg->child_pins)
+		free(rseg->child_pins);
+	rseg->child_pins = NULL;
+	rseg->n_child_pins = 0;
+
+	// find and remove this segment from its parent
+	struct routed_segment *parent_rseg = rseg->parent;
+	if (parent_rseg) {
+		for (int i = 0; i < parent_rseg->n_child_segments; i++) {
+			if (parent_rseg->child_segments[i] == rseg) {
+				if (i < parent_rseg->n_child_segments - 1)
+					parent_rseg->child_segments[i] = parent_rseg->child_segments[parent_rseg->n_child_segments - 1];
+				else
+					parent_rseg->child_segments[i] = NULL;
+
+				parent_rseg->n_child_segments--;
+				break;
+			}
+			// this search should succeed
+			assert(i < parent_rseg->n_child_segments - 1);
+		}
+	}
+
+	assert(rseg->coords);
+	free(rseg->coords);
+	rseg->coords = NULL;
+	rseg->n_coords = 0;
+	struct segment zero = {{0, 0, 0}, {0, 0, 0}};
+	rseg->seg = zero;
+	rseg->score = 0;
 }
 
-int routed_net_cmp(const void *a, const void *b)
+// to sort in descending order, reverse the subtraction
+int rseg_score_cmp(const void *a, const void *b)
 {
-	struct routed_net *aa = *(struct routed_net **)a;
-	struct routed_net *bb = *(struct routed_net **)b;
+	struct routed_segment *aa = *(struct routed_segment **)a;
+	struct routed_segment *bb = *(struct routed_segment **)b;
 
-	return routed_net_score(bb) - routed_net_score(aa);
+	return bb->score - aa->score;
 }
 
 static struct rip_up_set natural_selection(struct routings *rt, FILE *log)
 {
 	int rip_up_count = 0;
 	int rip_up_size = 4;
-	struct routed_net **rip_up = malloc(rip_up_size * sizeof(struct routed_net *));
-	memset(rip_up, 0, rip_up_size * sizeof(struct routed_net *));
+	struct routed_segment **rip_up = calloc(rip_up_size, sizeof(struct routed_segment *));
 
 	int score_range = max_net_score - min_net_score;
 	int bias = score_range / 8;
 	int random_range = bias * 10;
 
 	fprintf(log, "[natural_selection] adjusted_score = score - %d (min net score) + %d (bias)\n", min_net_score, bias);
-	fprintf(log, "[natural_selection] net   rip   rand(%5d)   adj. score\n", score_range);
-	fprintf(log, "[natural_selection] ---   ---   -----------   ----------\n");
+	fprintf(log, "[natural_selection] net   seg                rip   rand(%5d)   adj. score\n", score_range);
+	fprintf(log, "[natural_selection] ---   ----------------   ---   -----------   ----------\n");
 
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		int score = 0;
-		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++)
-			score += rt->routed_nets[i].routed_segments[j].score;
+		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
+			struct routed_segment *rseg = &rsh->rseg;
+			if (!segment_routed(rseg))
+				continue;
 
-		int r = random() % random_range;
-		int adjusted_score = score - min_net_score + bias;
+			int r = random() % random_range;
+			int adjusted_score = rseg->score - min_net_score + bias;
 
-		if (r < adjusted_score) {
-			if (log)
-				// fprintf(log, "[natural_selection] ripping up net %d (rand(%d) = %d < %d)\n", i, random_range, r, adjusted_score);
-				fprintf(log, "[natural_selection] %3d    X         %5d   %5d\n", i, r, adjusted_score);
+			if (r < adjusted_score) {
+				if (log)
+					// fprintf(log, "[natural_selection] ripping up net %d (rand(%d) = %d < %d)\n", i, random_range, r, adjusted_score);
+					fprintf(log, "[natural_selection] %3d   %p    X         %5d   %5d\n", i, (void *)rseg, r, adjusted_score);
 #ifdef NATURAL_SELECTION_DEBUG
-			printf("[natural_selection] ripping up net %2d (rand(%d) = %d < %d)\n", i, random_range, r, adjusted_score);
+				printf("[natural_selection] ripping up net %2d, segment %p (rand(%d) = %d < %d)\n", i, rseg, random_range, r, adjusted_score);
 #endif
-			// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
-			rip_up[rip_up_count++] = &rt->routed_nets[i];
-			if (rip_up_count >= rip_up_size) {
-				rip_up_size *= 2;
-				rip_up = realloc(rip_up, rip_up_size * sizeof(struct routed_net *));
+				// print_routed_segment(&rt->routed_nets[i].routed_segments[j]);
+				rip_up[rip_up_count++] = rseg;
+				if (rip_up_count >= rip_up_size) {
+					rip_up_size *= 2;
+					rip_up = realloc(rip_up, rip_up_size * sizeof(struct routed_segment *));
+				}
+			} else {
+#ifdef NATURAL_SELECTION_DEBUG
+				printf("[natural_selection] leaving intact net %2d, segment %p (rand(%d) = %d >= %d)\n", i, rseg, random_range, r, adjusted_score);
+#endif
+				if (log)
+					fprintf(log, "[natural_selection] %3d   %p               %5d   %5d\n", i, (void *)rseg, r, adjusted_score);
+					// fprintf(log, "[natural_selection] leaving net %d intact (rand(%d) = %d >= %d)\n", i, random_range, r, adjusted_score);
 			}
-		} else {
-#ifdef NATURAL_SELECTION_DEBUG
-			printf("[natural_selection] leaving intact net %2d (rand(%d) = %d >= %d)\n", i, random_range, r, adjusted_score);
-#endif
-			if (log)
-				fprintf(log, "[natural_selection] %3d              %5d   %5d\n", i, r, adjusted_score);
-				// fprintf(log, "[natural_selection] leaving net %d intact (rand(%d) = %d >= %d)\n", i, random_range, r, adjusted_score);
 		}
 	}
 
@@ -1052,56 +1223,179 @@ struct routed_segment cityblock_route(struct segment seg)
 	struct routed_segment rseg = {seg, len, path, 0, NULL, NULL, 0, NULL, 0, NULL};
 	return rseg;
 }
+
+struct ubr_node {
+	struct mst_node *x;
+	struct mst_node *y;
+	int score;
+};
+
+int ubr_node_cmp(const void *a, const void *b)
+{
+	struct ubr_node *aa = (struct ubr_node *)a, *bb = (struct ubr_node *)b;
+	return aa->score - bb->score;
+}
+
+struct mst_node {
+	struct mst_node *parent;
+	struct placed_pin *pin;
+	int rank;
+};
+
+struct mst_node *dumb_mst_find(struct mst_node *x)
+{
+	if (x->parent != x)
+		x->parent = dumb_mst_find(x->parent);
+
+	return x->parent;
+}
+
+void dumb_mst_union(struct mst_node *x, struct mst_node *y)
+{
+	struct mst_node *rx = dumb_mst_find(x);
+	struct mst_node *ry = dumb_mst_find(y);
+
+	if (rx == ry)
+		return;
+
+	rx->parent = ry;
+
+	if (rx->rank == ry->rank)
+		ry->rank++;
+}
+
+struct routed_segment *find_parent_rseg(struct placed_pin *p)
+{
+	struct routed_segment *rseg = p->parent;
+	if (!rseg)
+		return NULL;
+
+	while (rseg->parent != NULL)
+		rseg = rseg->parent;
+
+	return rseg;
+}
+
+void add_child_pin(struct routed_segment *rseg, struct placed_pin *p)
+{
+	rseg->child_pins = realloc(rseg->child_pins, sizeof(struct placed_pin *) * ++rseg->n_child_pins);
+	rseg->child_pins[rseg->n_child_pins - 1] = p;
+	p->parent = rseg;
+}
+
+void add_child_segment(struct routed_segment *parent_rseg, struct routed_segment *rseg)
+{
+	parent_rseg->child_segments = realloc(parent_rseg->child_segments, sizeof(struct routed_segment *) * ++parent_rseg->n_child_segments);
+	parent_rseg->child_segments[parent_rseg->n_child_segments - 1] = rseg;
+	rseg->parent = parent_rseg;
+}
+
+// create routed segments for this net blindly (that is, without regard
+// to other objects) using cityblock routing
+void dumb_mst_route(struct routed_net *rn)
+{
+	// generate MST nodes
+	struct mst_node *mst_nodes = calloc(rn->n_pins, sizeof(struct mst_node));
+	for (int i = 0; i < rn->n_pins; i++)
+		mst_nodes[i] = (struct mst_node){&mst_nodes[i], &rn->pins[i], 0};
+
+	// generate union-by-rank nodes
+	int n_ubr_nodes = rn->n_pins * (rn->n_pins - 1) / 2;
+	struct ubr_node *ubr_nodes = calloc(n_ubr_nodes, sizeof(struct ubr_node));
+	int k = 0;
+	for (int i = 0; i < rn->n_pins; i++)
+		for (int j = i + 1; j < rn->n_pins; j++)
+			ubr_nodes[k++] = (struct ubr_node){&mst_nodes[i], &mst_nodes[j], distance_cityblock(extend_pin(mst_nodes[i].pin), extend_pin(mst_nodes[j].pin))};
+
+	qsort(ubr_nodes, n_ubr_nodes, sizeof(struct ubr_node), ubr_node_cmp);
+
+	// search through the list of union-by-rank nodes
+	int count = 0;
+	for (int i = 0; i < n_ubr_nodes && count < rn->n_pins - 1; i++) {
+		struct ubr_node a = ubr_nodes[i];
+		struct mst_node *x = a.x;
+		struct mst_node *y = a.y;
+
+		// if this node has a different parent than me, create
+		// a new segment connecting these two parents.
+		if (dumb_mst_find(x) != dumb_mst_find(y)) {
+			struct segment seg = {extend_pin(x->pin), extend_pin(y->pin)};
+			struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
+			rsh->next = NULL;
+			rsh->rseg = cityblock_route(seg);
+			rsh->rseg.net = rn;
+			
+			// if either object being joined has a parent segment already,
+			// set that parent segment as a child of this newly-formed
+			// segment
+
+			struct routed_segment *xp_rseg = find_parent_rseg(x->pin);
+			if (xp_rseg)
+				add_child_segment(&rsh->rseg, xp_rseg);
+			else
+				add_child_pin(&rsh->rseg, x->pin);
+
+			struct routed_segment *yp_rseg = find_parent_rseg(y->pin);
+			if (yp_rseg)
+				add_child_segment(&rsh->rseg, yp_rseg);
+			else
+				add_child_pin(&rsh->rseg, y->pin);
+
+			routed_net_add_segment_node(rn, rsh);
+			count++;
+			dumb_mst_union(x, y);
+		}
+	}
+}
+
 /* generate the MST for this net to determine the order of connections,
  * then connect them all with a city*/
-struct routed_net *dumb_route(struct blif *blif, struct net_pin_map *npm, net_t net)
+void dumb_route(struct routed_net *rn, struct blif *blif, struct net_pin_map *npm, net_t net)
 {
 	int n_pins = npm->n_pins_for_net[net];
-	struct routed_net *rn = malloc(sizeof(struct routed_net));
+	assert(n_pins > 0);
+
 	rn->net = net;
+	rn->routed_segments = NULL;
 
 	rn->n_pins = n_pins;
 	rn->pins = malloc(sizeof(struct placed_pin) * rn->n_pins);
 	memcpy(rn->pins, npm->pins[net], sizeof(struct placed_pin) * rn->n_pins);
 
-	rn->n_routed_segments = 0;
-
-		
 	if (n_pins == 1) {
-		rn->n_routed_segments = 1;
 		struct segment seg = {npm->pins[net][0].coordinate, npm->pins[net][0].coordinate};
 		struct coordinate *coords = malloc(sizeof(struct coordinate));
 		coords[0] = npm->pins[net][0].coordinate;
 
-		struct routed_segment rseg = {seg, 1, coords, 0, rn, NULL, 0, NULL, 0, NULL};
+		struct placed_pin **child_pins = malloc(sizeof(struct placed_pin *));
+		child_pins[0] = &npm->pins[net][0];
+
+		struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
+		rsh->rseg = (struct routed_segment){seg, 1, coords, 0, rn, NULL, 0, NULL, 1, child_pins};
+		rsh->next = NULL;
+		child_pins[0]->parent = &rsh->rseg;
 		
-		rn->routed_segments = malloc(sizeof(struct routed_segment));
-		rn->routed_segments[0] = rseg;
+		rn->routed_segments = rsh;
 	} else if (n_pins == 2) {
 		struct segment seg = {extend_pin(&npm->pins[net][0]), extend_pin(&npm->pins[net][1])};
-		rn->n_routed_segments = 1;
-		rn->routed_segments = malloc(sizeof(struct routed_segment));
-		rn->routed_segments[0] = cityblock_route(seg);
-		rn->routed_segments[0].net = rn;
 
+		struct placed_pin **child_pins = malloc(2 * sizeof(struct placed_pin *));
+		child_pins[0] = &npm->pins[net][0];
+		child_pins[1] = &npm->pins[net][1];
+
+		struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
+		rsh->rseg = cityblock_route(seg);
+		rsh->rseg.net = rn;
+		rsh->rseg.n_child_pins = 2;
+		rsh->rseg.child_pins = child_pins;
+		child_pins[0]->parent = &rsh->rseg;
+		child_pins[1]->parent = &rsh->rseg;
+		rsh->next = NULL;
+
+		rn->routed_segments = rsh;
 	} else {
-		struct coordinate *coords = calloc(n_pins, sizeof(struct coordinate));
-		for (int j = 0; j < n_pins; j++)
-			coords[j] = extend_pin(&npm->pins[net][j]);
-
-		struct segments *mst = create_mst(coords, n_pins);
-		rn->n_routed_segments = n_pins - 1;
-		rn->routed_segments = malloc(sizeof(struct routed_segment) * rn->n_routed_segments);
-		for (int j = 0; j < mst->n_segments; j++) {
-			struct routed_segment rseg = cityblock_route(mst->segments[j]);
-			rseg.net = rn;
-			rn->routed_segments[j] = rseg;
-		}
-		free_segments(mst);
-		free(coords);
+		dumb_mst_route(rn);
 	}
-
-	return rn;
 }
 
 static struct routings *initial_route(struct blif *blif, struct net_pin_map *npm)
@@ -1112,9 +1406,23 @@ static struct routings *initial_route(struct blif *blif, struct net_pin_map *npm
 	rt->npm = npm;
 
 	for (net_t i = 1; i < npm->n_nets + 1; i++)
-		rt->routed_nets[i] = *dumb_route(blif, npm, i);
+		dumb_route(&rt->routed_nets[i], blif, npm, i);
 
 	return rt;
+}
+
+void assert_in_bounds(struct routed_net *rn)
+{
+	int arbitrary_max = 1000;
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		struct routed_segment *rseg = &rsh->rseg;
+		if (segment_routed(rseg)) {
+			for (int j = 0; j < rseg->n_coords; j++) {
+				struct coordinate c = rseg->coords[j];
+				assert(c.y >= 0 && c.z >= 0 && c.x >= 0 && c.y < arbitrary_max && c.z < arbitrary_max && c.x < arbitrary_max);
+			}
+		}
+	}
 }
 
 /* main route subroutine */
@@ -1140,26 +1448,48 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	while ((violations = count_routings_violations(cp, rt, log)) > 0 && !interrupt_routing) {
 		struct rip_up_set rus = natural_selection(rt, log);
 		// sort elements by highest score
-		qsort(rus.rip_up, rus.n_ripped, sizeof(struct routed_net *), routed_net_cmp);
+		qsort(rus.rip_up, rus.n_ripped, sizeof(struct routed_segment *), rseg_score_cmp);
+
+		struct routed_net **nets_ripped = calloc(rus.n_ripped, sizeof(struct routed_net *));
 
 		printf("\r[router] Iterations: %4d, Violations: %d, Segments to re-route: %d", iterations + 1, violations, rus.n_ripped);
 		fprintf(log, "\n[router] Iterations: %4d, Violations: %d, Segments to re-route: %d\n", iterations + 1, violations, rus.n_ripped);
 		fflush(stdout);
 		fflush(log);
 
-
+		// rip up all segments in rip-up set
 		for (int i = 0; i < rus.n_ripped; i++) {
-			fprintf(log, "[router] Ripping up net %d (score %d)\n", rus.rip_up[i]->net, routed_net_score(rus.rip_up[i]));
-			rip_up(rus.rip_up[i]);
+			fprintf(log, "[router] Ripping up net %d, segment %p (score %d)\n", rus.rip_up[i]->net->net, (void *)rus.rip_up[i], rus.rip_up[i]->score);
+			nets_ripped[i] = rus.rip_up[i]->net;
+			rip_up_segment(rus.rip_up[i]);
+
+			// remove segment from rt
+			struct routed_segment_head *rsh = remove_rsh(rus.rip_up[i]);
+			free(rsh);
 		}
 
+		// individually reroute all net instances that have had rip-ups occur
 		for (int i = 0; i < rus.n_ripped; i++) {
+			struct routed_net *net_to_reroute = nets_ripped[i];
+			if (!net_to_reroute)
+				continue;
+
+			fprintf(log, "[router] Rerouting net %d\n", net_to_reroute->net);
+
 			recenter(cp, rt, 2);
-			fprintf(log, "[router] Rerouting net %d\n", rus.rip_up[i]->net);
-			maze_reroute(cp, rt, rus.rip_up[i], 2);
-			// print_routed_segment(rus.rip_up[i]);
+			maze_reroute(cp, rt, net_to_reroute, 2);
+
+			// prevent subsequent reroutings of this net
+			for (int j = i + 1; j < rus.n_ripped; j++)
+				if (nets_ripped[j] == net_to_reroute)
+					nets_ripped[j] = NULL;
+
+			// printf("[maze_reroute] Rerouted net %d\n", net_to_reroute->net);
+			// print_routed_net(net_to_reroute);
+			assert_in_bounds(net_to_reroute);
 		}
 		free(rus.rip_up);
+		rus.n_ripped = 0;
 
 		recenter(cp, rt, 2);
 
@@ -1172,11 +1502,15 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	fprintf(log, "\n[router] Solution found! Optimizing...\n");
 	fclose(log);
 
-	for (net_t i = 1; i < rt->n_routed_nets; i++) {
-		rip_up(&rt->routed_nets[i]);
-		recenter(cp, rt, 2);
-		maze_reroute(cp, rt, &rt->routed_nets[i], 2);
+/*
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
+		for (int j = 0; j < rt->routed_nets[i].sz_routed_segments; j++) {
+			rip_up_segment(&rt->routed_nets[i].routed_segments[j]);
+			recenter(cp, rt, 2);
+			maze_reroute(cp, rt, &rt->routed_nets[i], 2);
+		}
 	}
+*/
 
 	printf("[router] Routing complete!\n");
 	print_routings(rt);

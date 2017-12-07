@@ -33,15 +33,16 @@ struct coordinate routings_top_left_most_point(struct routings *rt)
 	struct coordinate d;
 
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		for (int j = 0; j < rt->routed_nets[i].n_routed_segments; j++) {
-			for (int k = 0; k < rt->routed_nets[i].routed_segments[j].n_coords; k++) {
-				struct coordinate c = rt->routed_nets[i].routed_segments[j].coords[k];
+		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
+			for (int k = 0; k < rsh->rseg.n_coords; k++) {
+				struct coordinate c = rsh->rseg.coords[k];
 				if (unfound) {
 					d = c;
 					unfound = 0;
 				} else {
 					d = coordinate_piecewise_min(c, d);
 				}
+				// printf("[rtlmp] c = (%d, %d, %d)\n", c.y, c.z, c.x);
 			}
 		}
 	}
@@ -117,9 +118,9 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 		return e;
 
 	for (net_t i = 1; i < nrt->n_routed_nets + 1; i++) {
-		for (int j = 0; j < nrt->routed_nets[i].n_routed_segments; j++) {
-			for (int k = 0; k < nrt->routed_nets[i].routed_segments[j].n_coords; k++) {
-				struct coordinate c = nrt->routed_nets[i].routed_segments[j].coords[k];
+		for (struct routed_segment_head *rsh = nrt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
+			for (int k = 0; k < rsh->rseg.n_coords; k++) {
+				struct coordinate c = rsh->rseg.coords[k];
 				if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
 					continue;
 				e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;

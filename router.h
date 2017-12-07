@@ -35,6 +35,11 @@ struct routed_segment {
 	struct placed_pin **child_pins;
 };
 
+struct routed_segment_head {
+	struct routed_segment_head *next;
+	struct routed_segment rseg;
+};
+
 struct routed_net {
 	net_t net;
 
@@ -44,8 +49,7 @@ struct routed_net {
 	int n_pins;
 	struct placed_pin *pins;
 
-	int n_routed_segments;
-	struct routed_segment *routed_segments;
+	struct routed_segment_head *routed_segments;
 };
 
 struct routings *route(struct blif *, struct cell_placements *);

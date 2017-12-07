@@ -56,14 +56,19 @@ net_t add_net(struct blif *blif, char *name)
 	return id;
 }
 
-static char *read_blif_line(FILE *f)
+struct blif_line {
+	char *line;
+	size_t len;
+};
+
+static struct blif_line read_blif_line(FILE *f)
 {
 	size_t cur_buf_size, len, pos;
 	size_t bytes_read;
 	char *line;
 
 	if (feof(f))
-		return NULL;
+		return (struct blif_line){NULL, 0};
 
 	cur_buf_size = 0;
 	len = 0;
@@ -84,7 +89,7 @@ static char *read_blif_line(FILE *f)
 		if (!bytes_read && ferror(f)) {
 			printf("[blif] error reading file: %s\n", strerror(errno));
 			free(line);
-			return NULL;
+			return (struct blif_line){NULL, 0};
 		}
 
 		len += bytes_read;
@@ -122,7 +127,7 @@ static char *read_blif_line(FILE *f)
 		}
 	}
 
-	return line;
+	return (struct blif_line){line, cur_buf_size};
 }
 
 static void read_inputs(struct blif *blif, char *line)
@@ -224,6 +229,8 @@ static void read_subckt(struct blif *blif, char *line)
 struct blif *read_blif(FILE *f)
 {
 	struct blif *blif;
+	struct blif_line bl;
+	size_t line_size;
 	char *line, *tofree;
 	char *tmp;
 
@@ -239,7 +246,9 @@ struct blif *read_blif(FILE *f)
 	blif->net_names[0] = NULL;
 
 	/* read the blif file */
-	tofree = line = read_blif_line(f);
+	bl = read_blif_line(f);
+	tofree = line = bl.line;
+	line_size = bl.len;
 
 	while (line) {
 		if (strncmp(line, ".model", 6) == 0 && !blif->model) {
@@ -265,14 +274,16 @@ struct blif *read_blif(FILE *f)
 			for (tmp = line + 7; *tmp == ' ' || *tmp == '\t'; tmp++);
 			read_subckt(blif, tmp);
 
-		} else if (strlen(line) > 0) {
+		} else if (strnlen(line, line_size - (line - tofree)) > 0) {
 #ifdef BLIF_DEBUG
 			printf("[blif line] %s\n", line);
 #endif
 		}
 
 		free(tofree);
-		tofree = line = read_blif_line(f);
+		bl = read_blif_line(f);
+		tofree = line = bl.line;
+		line_size = bl.len;
 	}
 
 	return blif;
