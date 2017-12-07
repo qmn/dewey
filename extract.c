@@ -70,16 +70,19 @@ void recenter(struct cell_placements *cp, struct routings *rt, int xz_margin)
 
 struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 {
-	struct cell_placements *ncp = copy_placements(cp);
-	struct routings *nrt = rt ? copy_routings(rt) : NULL;
-	recenter(ncp, nrt, 2);
+	struct coordinate disp = placements_top_left_most_point(cp);
+	if (rt)
+		disp = coordinate_piecewise_min(disp, routings_top_left_most_point(rt));
 
-	struct dimensions cpd = compute_placement_dimensions(ncp);
+	struct dimensions cpd = compute_placement_dimensions(cp);
 	struct dimensions rtd = {0, 0, 0};
-	if (nrt)
+	if (rt)
 		rtd = compute_routings_dimensions(rt);
 	struct dimensions d = dimensions_piecewise_max(cpd, rtd);
-	assert(d.x > 0 && d.y > 0 && d.z > 0);
+
+	// modify dimensions (we'll perform the displacement later)
+	d.z += -disp.z + 4;
+	d.x += -disp.x + 4;
 	printf("[extract] extraction dimensions: h=%d w=%d l=%d\n", d.y, d.z, d.x);
 
 	struct extraction *e = malloc(sizeof(struct extraction));
@@ -90,8 +93,8 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 	e->data = calloc(size, sizeof(data_t));
 
 	/* place blocks resulting from placement in image */
-	for (int i = 0; i < ncp->n_placements; i++) {
-		struct placement p = ncp->placements[i];
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct placement p = cp->placements[i];
 
 		struct coordinate c = p.placement;
 		struct logic_cell *lc = p.cell;
@@ -100,7 +103,7 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 		for (int y = 0; y < lcd.y; y++) {
 			for (int z = 0; z < lcd.z; z++) {
 				for (int x = 0; x < lcd.x; x++) {
-					int fd_off = (c.y + y) * d.z * d.x + (c.z + z) * d.x + (c.x + x);
+					int fd_off = (c.y - disp.y + 2 + y) * d.z * d.x + (c.z - disp.z + 2 + z) * d.x + (c.x - disp.x + 2 + x);
 					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
 
 					assert(fd_off >= 0 && fd_off <= size);
@@ -111,16 +114,17 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 		}
 	}
 
-	free_cell_placements(ncp);
-
 	/* if that's all, return, otherwise proceed to add routings */
-	if (!nrt)
+	if (!rt)
 		return e;
 
-	for (net_t i = 1; i < nrt->n_routed_nets + 1; i++) {
-		for (struct routed_segment_head *rsh = nrt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
+		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
 			for (int k = 0; k < rsh->rseg.n_coords; k++) {
 				struct coordinate c = rsh->rseg.coords[k];
+				c = coordinate_sub(c, disp);
+				c.z += 2;
+				c.x += 2;
 				if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
 					continue;
 				e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
@@ -129,8 +133,6 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 			}
 		}
 	}
-
-	free_routings(nrt);
 
 	return e;
 }
