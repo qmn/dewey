@@ -1502,15 +1502,20 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	fprintf(log, "\n[router] Solution found! Optimizing...\n");
 	fclose(log);
 
-/*
+	// rip up a net wholesale and reroute it
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		for (int j = 0; j < rt->routed_nets[i].sz_routed_segments; j++) {
-			rip_up_segment(&rt->routed_nets[i].routed_segments[j]);
-			recenter(cp, rt, 2);
-			maze_reroute(cp, rt, &rt->routed_nets[i], 2);
-		}
+		struct routed_segment_head *next = rt->routed_nets[i].routed_segments, *curr;
+		do {
+			curr = next;
+			next = next->next;
+			rip_up_segment(&curr->rseg);
+			free(curr);
+		} while (next);
+		rt->routed_nets[i].routed_segments = NULL;
+
+		recenter(cp, rt, 2);
+		maze_reroute(cp, rt, &rt->routed_nets[i], 2);
 	}
-*/
 
 	printf("[router] Routing complete!\n");
 	print_routings(rt);
