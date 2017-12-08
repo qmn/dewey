@@ -840,6 +840,14 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 
 		}
 	}
+
+	// free things used in routing
+	for (int i = 0; i < n_groups; i++)
+		free_routing_group(rgs[i]);
+	free(rgs);
+
+	free(visited);
+
 	// printf("[maze_reroute] n_routed_segments=%d, n_pins=%d\n", rn->n_routed_segments, rn->n_pins);
 	// assert(rn->n_routed_segments >= rn->n_pins - 1);
 	// printf("[maze_route] done\n");
