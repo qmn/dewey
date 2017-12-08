@@ -11,7 +11,7 @@
 #include "placer.h"
 #include "segment.h"
 
-#define MIN_MARGIN 2
+#define MIN_MARGIN 4
 #define EDGE_MARGIN MIN_MARGIN
 
 #define MIN_WINDOW_WIDTH 8
@@ -243,32 +243,36 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 
 static int overlap(int s1, int e1, int s2, int e2)
 {
-	assert(e1 >= s1 && e2 >= s2);
+	// assert(e1 >= s1 && e2 >= s2);
 	int space = max(e1, e2) - min(s1, s2);
 	int taken = (e1 - s1) + (e2 - s2);
-	return taken > space ? (taken - space) : 0;
+	return max(taken - space, 0);
 }
 
-static struct dimensions placement_overlaps(struct placement p, struct placement q, int use_margin)
+static struct dimensions placement_overlaps(struct coordinate pc, struct coordinate qc, struct dimensions pd, struct dimensions qd, int margin)
 {
-	struct coordinate pc = p.placement, qc = q.placement;
-	struct dimensions pd = p.cell->dimensions[p.turns], qd = q.cell->dimensions[q.turns];
 	int nt = 1; // nt = no touch -- cannot be within this area
-	int m = use_margin ? min(p.margin, q.margin) : 0;
+	int m = margin;
 
 	// M    C    C+D   M
 	// |<--X[__P__]X-->|
 	//             |<--X[__Q__]X-->|
         //             M    C    C+D   M
-	int yo = overlap(pc.y - nt - m, pc.y + pd.y + nt + m, qc.y - nt - m, qc.y + qd.y + nt + m);
-	int zo = overlap(pc.z - nt - m, pc.z + pd.z + nt + m, qc.z - nt - m, qc.z + qd.z + nt + m);
-	int xo = overlap(pc.x - nt - m, pc.x + pd.x + nt + m, qc.x - nt - m, qc.x + qd.x + nt + m);
+	int d = nt + m;
+	int yo, zo, xo;
+
+	// if any of these overlaps don't exist, they just don't overlap -- short-circuit return
+	if (
+	    !(zo = overlap(pc.z - d, pc.z + pd.z + d, qc.z - d, qc.z + qd.z + d)) ||
+	    !(xo = overlap(pc.x - d, pc.x + pd.x + d, qc.x - d, qc.x + qd.x + d)) ||
+	    !(yo = overlap(pc.y - d, pc.y + pd.y + d, qc.y - d, qc.y + qd.y + d)))
+		return (struct dimensions){0, 0, 0};
 
 	// if there is an overlap due to the margin, reduce overlap by the
 	// size of the lesser margin (as far down to zero)
-	yo = yo > 0 ? max(yo - m, 0) : 0;
-	zo = zo > 0 ? max(zo - m, 0) : 0;
-	xo = xo > 0 ? max(xo - m, 0) : 0;
+	yo = max(yo - m, 0);
+	zo = max(zo - m, 0);
+	xo = max(xo - m, 0);
 
 	return (struct dimensions){yo, zo, xo};
 }
@@ -286,25 +290,40 @@ struct overlap_penalty {
 static struct overlap_penalty compute_overlap_penalty_pairwise(struct cell_placements *cp)
 {
 	int i, j;
-	struct placement p, q;
 	int violations, score;
+
+	struct placement p;
+	struct coordinate *cs;
+	struct dimensions *ds;
+	int *ms;
+
+	// precompute coordinates and dimensions
+	cs = calloc(cp->n_placements, sizeof(struct coordinate));
+	ds = calloc(cp->n_placements, sizeof(struct dimensions));
+	ms = calloc(cp->n_placements, sizeof(int));
+	for (i = 0; i < cp->n_placements; i++) {
+		p = cp->placements[i];
+		cs[i] = p.placement;
+		ds[i] = p.cell->dimensions[p.turns];
+		ms[i] = p.margin;
+	}
 
 	score = 0;
 	violations = 0;
 
 	for (i = 0; i < cp->n_placements; i++) {
-		p = cp->placements[i];
-
 		for (j = i + 1; j < cp->n_placements; j++) {
-			q = cp->placements[j];
-
-			struct dimensions ov = placement_overlaps(p, q, 0);
+			struct dimensions ov = placement_overlaps(cs[i], cs[j], ds[i], ds[j], 0);
 			violations += ov.x * ov.y * ov.z;
 
-			ov = placement_overlaps(p, q, 1);
+			ov = placement_overlaps(cs[i], cs[j], ds[i], ds[j], min(ms[i], ms[j]));
 			score += ov.x * ov.y * ov.z;
 		}
 	}
+
+	free(cs);
+	free(ds);
+	free(ms);
 
 	return (struct overlap_penalty){violations, score};
 }
@@ -527,7 +546,7 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d\n", overlap, wire_length, bounds, design_size);
 #endif
-	return (overlap.violations * overlap.violations * 10) + overlap.score * 2 + wire_length + bounds + design_size + squareness;
+	return (overlap.violations * overlap.violations) + overlap.score + wire_length + bounds + design_size + squareness;
 }
 
 static int accept(int new_score, int old_score, double t)

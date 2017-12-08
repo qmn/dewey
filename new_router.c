@@ -1448,7 +1448,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
-	FILE *log = fopen("new_router.log", "w");
+	FILE *log = fopen("router.log", "w");
 
 	violations = count_routings_violations(cp, rt, log);
 
