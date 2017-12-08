@@ -241,69 +241,72 @@ struct dimensions compute_placement_dimensions(struct cell_placements *cp)
 	return d;
 }
 
-static char *overlap_tmp = NULL;
-static int overlap_tmp_size = 0;
-static int overlap_penalty = 0;
-
-/* determine the number of overlaps in the grid */
-static int compute_overlap_penalty(struct cell_placements *cp)
+static int overlap(int s1, int e1, int s2, int e2)
 {
-	int i, penalty;
-	int size;
-	struct placement p;
+	assert(e1 >= s1 && e2 >= s2);
+	int space = max(e1, e2) - min(s1, s2);
+	int taken = (e1 - s1) + (e2 - s2);
+	return taken > space ? (taken - space) : 0;
+}
 
-	struct dimensions d = compute_placement_dimensions(cp);
-#ifdef PLACER_SCORE_DEBUG
-	printf("[compute_overlap_penalty] l=%d, w=%d, h=%d\n", d.x, d.z, d.y);
-#endif
+static struct dimensions placement_overlaps(struct placement p, struct placement q, int use_margin)
+{
+	struct coordinate pc = p.placement, qc = q.placement;
+	struct dimensions pd = p.cell->dimensions[p.turns], qd = q.cell->dimensions[q.turns];
+	int nt = 1; // nt = no touch -- cannot be within this area
+	int m = use_margin ? min(p.margin, q.margin) : 0;
 
-	penalty = 0;
-	size = d.x * d.y * d.z;
-	if (!overlap_tmp || size > overlap_tmp_size) {
-		int new_size = size * 2;
-		printf("[compute_overlap_penalty] l=%d, w=%d, h=%d\n", d.x, d.z, d.y);
-		printf("[compute_overlap_penalty] resizing from %d to %d (%d x %d x %d)\n", overlap_tmp_size, new_size, d.x, d.z, d.y);
-		free(overlap_tmp);
-		overlap_tmp = malloc(new_size * sizeof(char));
-		overlap_tmp_size = new_size;
-	}
-	memset(overlap_tmp, 0, size);
+	// M    C    C+D   M
+	// |<--X[__P__]X-->|
+	//             |<--X[__Q__]X-->|
+        //             M    C    C+D   M
+	int yo = overlap(pc.y - nt - m, pc.y + pd.y + nt + m, qc.y - nt - m, qc.y + qd.y + nt + m);
+	int zo = overlap(pc.z - nt - m, pc.z + pd.z + nt + m, qc.z - nt - m, qc.z + qd.z + nt + m);
+	int xo = overlap(pc.x - nt - m, pc.x + pd.x + nt + m, qc.x - nt - m, qc.x + qd.x + nt + m);
+
+	// if there is an overlap due to the margin, reduce overlap by the
+	// size of the lesser margin (as far down to zero)
+	yo = yo > 0 ? max(yo - m, 0) : 0;
+	zo = zo > 0 ? max(zo - m, 0) : 0;
+	xo = xo > 0 ? max(xo - m, 0) : 0;
+
+	return (struct dimensions){yo, zo, xo};
+}
+
+// compute overlap penalty in a smarter way:
+// compare placements cell-wise, to avoid large memory allocation
+// if cells are more apart than the largest dimension of all of them,
+// there is no overlap, and continue
+// otherwise, only then do you create a overlap grid
+struct overlap_penalty {
+	int violations;
+	int score;
+};
+
+static struct overlap_penalty compute_overlap_penalty_pairwise(struct cell_placements *cp)
+{
+	int i, j;
+	struct placement p, q;
+	int violations, score;
+
+	score = 0;
+	violations = 0;
 
 	for (i = 0; i < cp->n_placements; i++) {
 		p = cp->placements[i];
 
-		struct coordinate c = p.placement;
-		struct dimensions pd = p.cell->dimensions[p.turns];
+		for (j = i + 1; j < cp->n_placements; j++) {
+			q = cp->placements[j];
 
-		int cell_x = c.x + pd.x;
-		int cell_y = c.y + pd.y;
-		int cell_z = c.z + pd.z;
+			struct dimensions ov = placement_overlaps(p, q, 0);
+			violations += ov.x * ov.y * ov.z;
 
-/*
-		printf("[compute_overlap_penalty] placing coordinate (y=%d, z=%d, x=%d) + (h=%d, w=%d, l=%d)\n",
-			c.y, c.z, c.x, pd.y, pd.z, pd.x);
-*/
-
-		int z1 = max(0, c.z - p.margin), z2 = min(d.z, cell_z + p.margin);
-		int x1 = max(0, c.x - p.margin), x2 = min(d.x, cell_x + p.margin);
-
-		/* if another cell is there, increase the penalty */
-		for (int y = c.y; y < cell_y; y++) {
-			int by = y * d.z * d.x;
-			for (int z = z1; z < z2; z++) {
-				int bz = z * d.x;
-				for (int x = x1; x < x2; x++) {
-					// printf("[compute_overlap_penalty] y=%d z=%d x=%d\n", y, z, x);
-					if (overlap_tmp[by + bz + x]++)
-						penalty += 1;
-				}
-			}
+			ov = placement_overlaps(p, q, 1);
+			score += ov.x * ov.y * ov.z;
 		}
 	}
 
-	/* read by simulated_annealing_placement to see if we must continue */
-	overlap_penalty = penalty;
-	return penalty;
+	return (struct overlap_penalty){violations, score};
 }
 
 struct coordinate extend_in_direction(enum ordinal_direction facing, struct coordinate c)
@@ -516,7 +519,7 @@ static int compute_design_size_penalty(struct cell_placements *placements)
 /* requires placements be re-centered so that all numbers positive */
 static int score(struct cell_placements *placements, struct dimensions boundary)
 {
-	int overlap = compute_overlap_penalty(placements);
+	struct overlap_penalty overlap = compute_overlap_penalty_pairwise(placements);
 	int wire_length = compute_wire_length_penalty(placements);
 	int bounds = compute_out_of_bounds_penalty(placements, boundary);
 	int design_size = compute_design_size_penalty(placements);
@@ -524,7 +527,7 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d\n", overlap, wire_length, bounds, design_size);
 #endif
-	return (overlap * overlap) + wire_length + bounds + design_size + squareness;
+	return (overlap.violations * overlap.violations * 10) + overlap.score * 2 + wire_length + bounds + design_size + squareness;
 }
 
 static int accept(int new_score, int old_score, double t)
@@ -573,6 +576,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	unsigned int i, g;
 	enum placement_method method, method_used;
 	int new_score, old_score, taken_score;
+	int violating_overlaps;
 
 	taken_score = 0;
 
@@ -594,11 +598,13 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 	int match_iterations = 0;
 	int match_score = old_score;
 	int stop_iterations = 100;
+	violating_overlaps = 0;
 
 	interrupt_placement = 0;
 	signal(SIGINT, placer_sigint_handler);
 
-	for (i = 0; (i < iterations || match_iterations < stop_iterations || overlap_penalty > 0) && !interrupt_placement; i++) {
+	i = 0;
+	do {
 #ifdef PLACER_GENERATION_DEBUG
 		printf("[placer] iteration = %d\n", i);
 #endif
@@ -665,17 +671,17 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 		old_score = taken_score;
 
 		d = compute_placement_dimensions(best_placements);
-		printf("\rIteration: %4d, Score: %6u (overlap penalty: %6u, design size: %d x %d), Temperature: %6.0f", (i + 1), taken_score, overlap_penalty, d.z, d.x, t);
+		violating_overlaps = compute_overlap_penalty_pairwise(best_placements).violations;
+
+		printf("\rIteration: %4d, Score: %6u (violations: %6u, design size: %d x %d), Temperature: %6.0f", (i + 1), taken_score, violating_overlaps, d.z, d.x, t);
 		fflush(stdout);
 		// print_cell_placements(best_placements);
 
 		t = update(t, fixed_alpha);
-	}
+	} while ((i++ < iterations || match_iterations < stop_iterations || violating_overlaps > 0) && !interrupt_placement);
+
 	signal(SIGINT, SIG_DFL);
 	printf("\nPlacement complete\n");
-
-	/* free overlap_tmp structure */
-	free(overlap_tmp);
 
 	return best_placements;
 }
