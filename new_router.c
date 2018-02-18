@@ -798,30 +798,38 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 				if (is_vertical(backtraces[movt]))
 					continue;
 
-				// create a new segment arising from the merging of these two routing groups
-				struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
-				rsh->next = NULL;
-				rsh->rseg = make_segment_from_points(m, c, cc, rg->bt, visited_rg->bt);
-				rsh->rseg.net = rn;
-				routed_net_add_segment_node(rn, rsh);
+				// if these groups happened to be adjacent already, don't create a new segment;
+				// instead, merge the adjacent group into this one and keep looking
+				if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
+					visited_rg->parent = rg;
+					visited_rg = rg;
+					remaining_groups--;
+				} else {
+					// create a new segment arising from the merging of these two routing groups
+					struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
+					rsh->next = NULL;
+					rsh->rseg = make_segment_from_points(m, c, cc, rg->bt, visited_rg->bt);
+					rsh->rseg.net = rn;
+					routed_net_add_segment_node(rn, rsh);
 
-				struct routed_segment *rseg = &rsh->rseg;
-				assert(rseg);
-				routed_segment_add_child(rseg, rg);
-				routed_segment_add_child(rseg, visited_rg);
+					struct routed_segment *rseg = &rsh->rseg;
+					assert(rseg);
+					routed_segment_add_child(rseg, rg);
+					routed_segment_add_child(rseg, visited_rg);
 
-				// create a new routing group based on this segment
-				struct routing_group *new_rg = alloc_routing_group(USAGE_SIZE(m));
-				rg->parent = visited_rg->parent = new_rg;
-				init_routing_group_with_segment(new_rg, m, rseg, visited);
-				assert(!new_rg->origin_pin);
+					// create a new routing group based on this segment
+					struct routing_group *new_rg = alloc_routing_group(USAGE_SIZE(m));
+					rg->parent = visited_rg->parent = new_rg;
+					init_routing_group_with_segment(new_rg, m, rseg, visited);
+					assert(!new_rg->origin_pin);
 
-				rgs[n_groups++] = new_rg;
+					rgs[n_groups++] = new_rg;
 
-				assert(n_groups <= total_groups);
+					assert(n_groups <= total_groups);
 
-				remaining_groups--;
-				break;
+					remaining_groups--;
+					break;
+				}
 			}
 
 			// if we haven't already visited this one, add it to the heap
