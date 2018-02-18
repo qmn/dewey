@@ -3,3 +3,6 @@ dewey
 *.swp
 tags
 *.dSYM
+*.blif
+*.log
+*.png

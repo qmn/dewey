@@ -10,6 +10,7 @@
 #include "extract.h"
 #include "placer.h"
 #include "segment.h"
+#include "util.h"
 
 #define MIN_MARGIN 4
 #define EDGE_MARGIN MIN_MARGIN
@@ -25,16 +26,6 @@ enum placement_method {
 	REORIENT,
 	INTERCHANGE
 };
-
-static int max(int a, int b)
-{
-	return a > b ? a : b;
-}
-
-static int min(int a, int b)
-{
-	return a < b ? a : b;
-}
 
 static struct dimensions compute_unconstrained_placement_dimensions(struct cell_placements *cp)
 {
