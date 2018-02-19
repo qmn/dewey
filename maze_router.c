@@ -248,8 +248,6 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 
 	enum backtrace ent;
 
-	printf("\n[msfb] met at (%d, %d, %d) and (%d, %d, %d)\n", a.y, a.z, a.x, b.y, b.z, b.x);
-
 	// create backtrace from B side (the end)
 	while (b_bt[usage_idx(m, b)] != BT_START) {
 		assert(in_usage_bounds(m, b));
@@ -259,7 +257,6 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 		if (is_vertical(ent))
 			mark_via_violation_zone(m, b);
 
-		printf("(%d, %d, %d) ", b.y, b.z, b.x);
 		b = disp_backtrace(b, ent);
 		assert(in_usage_bounds(m, b));
 
@@ -268,7 +265,6 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 
 		bt_size = append_backtrace(ent, &rseg, bt_size);
 	}
-	printf("n_bt = %d\n", rseg.n_backtraces);
 
 	// now, at BT_START, we are at the end of the B side
 	rseg.seg.end = b;
@@ -288,7 +284,6 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 		if (is_vertical(ent))
 			mark_via_violation_zone(m, a);
 
-		printf("(%d, %d, %d) ", a.y, a.z, a.x);
 		a = disp_backtrace(a, ent);
 		assert(in_usage_bounds(m, a));
 
@@ -297,20 +292,11 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 
 		bt_size = append_backtrace(ent, &rseg, bt_size);
 	}
-	printf("n_bt = %d\n", rseg.n_backtraces);
 
 	// now, at BT_START again, we are at the start of the A side
 	rseg.seg.start = a;
 
 	// todo: realloc() to resize rseg->bt to size
-	printf("[msfb] end: (%d, %d, %d)\n[msfb] points: ", b.y, b.z, b.x);
-	struct coordinate c = rseg.seg.end;
-	for (int i = 0; i < rseg.n_backtraces; i++) {
-		c = disp_backtrace(c, rseg.bt[i]);
-		printf("(%d, %d, %d) ", c.y, c.z, c.x);
-	}
-	printf("\n[msfb] start: (%d, %d, %d)\n", a.y, a.z, a.x);
-	printf("\n");
 	return rseg;
 }
 

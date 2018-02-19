@@ -125,7 +125,6 @@ struct routings *copy_routings(struct routings *old_rt)
 
 void routings_displace(struct routings *rt, struct coordinate disp)
 {
-	printf("\n[routings] displaced by (%d, %d, %d)\n", disp.y, disp.z, disp.x);
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net *rn = &(rt->routed_nets[i]);
 

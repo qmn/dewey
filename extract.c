@@ -51,8 +51,6 @@ struct coordinate routings_top_left_most_point(struct routings *rt)
 		}
 	}
 
-	printf("[tlmp] (%d, %d, %d)\n", d.y, d.z, d.x);
-
 	return d;
 }
 
