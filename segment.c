@@ -3,6 +3,7 @@
 #include <math.h>
 
 #include "segment.h"
+#include "cell.h"
 
 int distance_pythagorean(struct coordinate a, struct coordinate b)
 {

@@ -2,32 +2,36 @@
 #include <stdlib.h>
 #include <string.h>
 
-#include "dumb_router.h"
+#include "router.h"
+#include "base_router.h"
 
+// route, based on a cityblock algorithm, without regard to Y or obstacles
 static struct routed_segment cityblock_route(struct segment seg)
 {
 	struct coordinate a = seg.start;
 	struct coordinate b = seg.end;
 
-	int len = distance_cityblock(a, b) + 1; // to include block you start at
+	int len = distance_cityblock(a, b); // does not include BT_START
 	int count = 0;
-	struct coordinate *path = malloc(sizeof(struct coordinate) * len);
-	path[count++] = a;
+	enum backtrace *path = malloc(sizeof(enum backtrace) * len);
 
 	assert(a.y == b.y);
 
-	struct coordinate c = a;
-	while (c.x != b.x || c.z != b.z) {
-		if (c.x > b.x)
+	struct coordinate c = b;
+	while (c.x != a.x || c.z != a.z) {
+		if (c.x > a.x) {
 			c.x--;
-		else if (c.x < b.x)
+			path[count++] = BT_WEST;
+		} else if (c.x < a.x) {
 			c.x++;
-		else if (c.z > b.z)
+			path[count++] = BT_EAST;
+		} else if (c.z > a.z) {
 			c.z--;
-		else if (c.z < b.z)
+			path[count++] = BT_NORTH;
+		} else if (c.z < a.z) {
 			c.z++;
-
-		path[count++] = c;
+			path[count++] = BT_SOUTH;
+		}
 	}
 
 	assert(count == len);
@@ -178,14 +182,14 @@ void dumb_route(struct routed_net *rn, struct blif *blif, struct net_pin_map *np
 
 	if (n_pins == 1) {
 		struct segment seg = {npm->pins[net][0].coordinate, npm->pins[net][0].coordinate};
-		struct coordinate *coords = malloc(sizeof(struct coordinate));
-		coords[0] = npm->pins[net][0].coordinate;
+		enum backtrace *path = malloc(sizeof(enum backtrace));
+		path[0] = BT_START;
 
 		struct placed_pin **child_pins = malloc(sizeof(struct placed_pin *));
 		child_pins[0] = &npm->pins[net][0];
 
 		struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
-		rsh->rseg = (struct routed_segment){seg, 1, coords, 0, rn, NULL, 0, NULL, 1, child_pins};
+		rsh->rseg = (struct routed_segment){seg, 1, path, 0, rn, NULL, 0, NULL, 1, child_pins};
 		rsh->next = NULL;
 		child_pins[0]->parent = &rsh->rseg;
 		

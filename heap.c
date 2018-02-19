@@ -3,7 +3,7 @@
 #include <assert.h>
 
 #include "heap.h"
-#include "router.h"
+#include "base_router.h"
 
 struct cost_coord_heap *create_cost_coord_heap()
 {

@@ -3,7 +3,6 @@
 #include <stdlib.h>
 #include <assert.h>
 
-#include "extract.h"
 #include "segment.h"
 #include "placer.h"
 #include "router.h"
@@ -38,9 +37,15 @@ static void router_sigint_handler(int a)
 
 void print_routed_segment(struct routed_segment *rseg)
 {
-	assert(rseg->n_coords >= 0);
-	for (int i = 0; i < rseg->n_coords; i++)
-		printf("(%d, %d, %d) ", rseg->coords[i].y, rseg->coords[i].z, rseg->coords[i].x);
+	assert(rseg->n_backtraces >= 0);
+	struct coordinate c = rseg->seg.end;
+	printf("(%d, %d, %d) ", c.y, c.z, c.x);
+
+	for (int i = 0; i < rseg->n_backtraces; i++) {
+		c = disp_backtrace(c, rseg->bt[i]);
+		printf("(%d, %d, %d) ", c.y, c.z, c.x);
+	}
+
 	printf("\n");
 }
 
@@ -120,13 +125,15 @@ struct routings *copy_routings(struct routings *old_rt)
 
 void routings_displace(struct routings *rt, struct coordinate disp)
 {
+	printf("\n[routings] displaced by (%d, %d, %d)\n", disp.y, disp.z, disp.x);
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net *rn = &(rt->routed_nets[i]);
+
+		// move start/end segments
 		for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
 			struct routed_segment *rseg = &rsh->rseg;
-			for (int k = 0; k < rseg->n_coords; k++) {
-				rseg->coords[k] = coordinate_add(rseg->coords[k], disp);
-			}
+			rseg->seg.start = coordinate_add(rseg->seg.start, disp);
+			rseg->seg.end = coordinate_add(rseg->seg.end, disp);
 		}
 
 		for (int j = 0; j < rn->n_pins; j++)
@@ -142,23 +149,27 @@ void routings_displace(struct routings *rt, struct coordinate disp)
 
 struct dimensions compute_routings_dimensions(struct routings *rt)
 {
-	struct coordinate d = {0, 0, 0};
+	struct coordinate dbr = {0, 0, 0}, dtl = {0, 0, 0}; // bottom-right and top-left
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct routed_net rn = rt->routed_nets[i];
 		for (struct routed_segment_head *rsh = rn.routed_segments; rsh; rsh = rsh->next) {
 			struct routed_segment rseg = rsh->rseg;
-			for (int k = 0; k < rseg.n_coords; k++) {
-				struct coordinate c = rseg.coords[k];
-				d = coordinate_piecewise_max(d, c);
+			struct coordinate c = rseg.seg.end;
+			for (int k = 0; k < rseg.n_backtraces; k++) {
+				c = disp_backtrace(c, rseg.bt[k]);
+				dbr = coordinate_piecewise_max(dbr, c);
+				dtl = coordinate_piecewise_min(dtl, c);
 			}
 
-			d = coordinate_piecewise_max(d, rseg.seg.start);
-			d = coordinate_piecewise_max(d, rseg.seg.end);
+			dbr = coordinate_piecewise_max(dbr, rseg.seg.start);
+			dbr = coordinate_piecewise_max(dbr, rseg.seg.end);
+			dtl = coordinate_piecewise_max(dtl, rseg.seg.start);
+			dtl = coordinate_piecewise_max(dtl, rseg.seg.end);
 		}
 	}
 
-	/* the dimension is the highest coordinate, plus 1 on each */
-	struct dimensions dd = {d.y + 1, d.z + 1, d.x + 1};
+	/* the dimension is the highest coordinate , plus 1 on each */
+	struct dimensions dd = {dbr.y - dtl.y + 1, dbr.z - dtl.z + 1, dbr.x - dtl.x + 1};
 
 	return dd;
 }
@@ -250,9 +261,10 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 			int segment_violations = 0;
 
 			struct routed_segment *rseg = &rsh->rseg;
+			struct coordinate c = rseg->seg.end;
 
-			for (int k = 0; k < rseg->n_coords; k++) {
-				struct coordinate c = rseg->coords[k];
+			for (int k = 0; k < rseg->n_backtraces; k++) {
+				c = disp_backtrace(c, rseg->bt[k]);
 				// printf("[crv] c = (%d, %d, %d)\n", c.y, c.z, c.x);
 
 				int block_in_violation = 0;
@@ -267,7 +279,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 					}
 
 					// only ignore the start/end pins for first/last blocks on net
-					if (k == 0 || k == rseg->n_coords - 1) {
+					if (k == 0 || k == rseg->n_backtraces - 1) {
 						int skip = 0;
 						for (int n = 0; n < rnet->n_pins; n++) {
 							struct coordinate pin_cc = rnet->pins[n].coordinate;
@@ -301,7 +313,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 
 			// printf("[crv] segment_violations = %d\n", segment_violations);
 
-			int segment_score = segment_violations * 1000 + rseg->n_coords;
+			int segment_score = segment_violations * 1000 + rseg->n_backtraces;
 			rseg->score = segment_score;
 			score += segment_score;
 			fprintf(log, "[crv] net %d seg %p score = %d\n", i, (void *)rseg, segment_score);
@@ -310,9 +322,10 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 		/* second loop actually marks segment in matrix */
 		for (struct routed_segment_head *rsh = rnet->routed_segments; rsh; rsh = rsh->next) {
 			struct routed_segment *rseg = &rsh->rseg;
+			struct coordinate c = rseg->seg.end;
 
-			for (int k = 0; k < rseg->n_coords; k++) {
-				struct coordinate c = rseg->coords[k];
+			for (int k = 0; k < rseg->n_backtraces; k++) {
+				c = disp_backtrace(c, rseg->bt[k]);
 				int idx = (c.y * d.z * d.x) + (c.z * d.x) + c.x;
 				matrix[idx]++;
 
@@ -361,13 +374,17 @@ void print_routing_congestion(struct routings *rt)
 	// avoid marking a net over itself
 	unsigned char *visited = calloc(d.x * d.z, sizeof(unsigned char));
 
-	for (net_t i = 1; i < rt->n_routed_nets; i++)
+	for (net_t i = 1; i < rt->n_routed_nets; i++) {
 		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
-			for (int k = 0; k < rsh->rseg.n_coords; k++)
-				mark_routing_congestion(rsh->rseg.coords[k], d, congestion, visited);
+			struct coordinate c = rsh->rseg.seg.end;
+			for (int k = 0; k < rsh->rseg.n_backtraces; k++) {
+				c = disp_backtrace(c, rsh->rseg.bt[k]);
+				mark_routing_congestion(c, d, congestion, visited);
+			}
 
 			memset(visited, 0, sizeof(unsigned char) * d.x * d.z);
 		}
+	}
 
 	free(visited);
 
@@ -464,10 +481,10 @@ void rip_up_segment(struct routed_segment *rseg)
 		}
 	}
 
-	assert(rseg->coords);
-	free(rseg->coords);
-	rseg->coords = NULL;
-	rseg->n_coords = 0;
+	assert(rseg->bt);
+	free(rseg->bt);
+	rseg->bt = NULL;
+	rseg->n_backtraces = 0;
 	struct segment zero = {{0, 0, 0}, {0, 0, 0}};
 	rseg->seg = zero;
 	rseg->score = 0;
@@ -565,8 +582,9 @@ void assert_in_bounds(struct routed_net *rn)
 	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
 		struct routed_segment *rseg = &rsh->rseg;
 		if (segment_routed(rseg)) {
-			for (int j = 0; j < rseg->n_coords; j++) {
-				struct coordinate c = rseg->coords[j];
+			struct coordinate c = rseg->seg.end;
+			for (int j = 0; j < rseg->n_backtraces; j++) {
+				c = disp_backtrace(c, rseg->bt[j]);
 				assert(c.y >= 0 && c.z >= 0 && c.x >= 0 && c.y < arbitrary_max && c.z < arbitrary_max && c.x < arbitrary_max);
 			}
 		}
@@ -599,7 +617,7 @@ int optimize_routings(struct cell_placements *cp, struct routings *rt, FILE *log
 	int violations = 0;
 	
 	while (n_rerouted < rt->n_routed_nets) {
-		net_t i = rand() % (rt->n_routed_nets + 1);
+		net_t i = random() % (rt->n_routed_nets + 1);
 		if (rerouted[i])
 			continue;
 

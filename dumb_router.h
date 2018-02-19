@@ -2,8 +2,7 @@
 #define __DUMB_ROUTER_H__
 
 #include "blif.h"
-#include "router.h"
-#include "placer.h"
+#include "base_router.h"
 
 void dumb_route(struct routed_net *, struct blif *, struct net_pin_map *, net_t);
 

@@ -73,9 +73,10 @@ struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct rout
 	/* routings */
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
-			for (int k = 0; k < rsh->rseg.n_coords; k++) {
+			struct coordinate c = rsh->rseg.seg.end;
+			for (int k = 0; k < rsh->rseg.n_backtraces; k++) {
 				// here
-				struct coordinate c = rsh->rseg.coords[k];
+				c = disp_backtrace(c, rsh->rseg.bt[k]);
 				usage_mark(m, c);
 
 				// below

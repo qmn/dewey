@@ -1,56 +1,9 @@
 #ifndef __ROUTER_H__
 #define __ROUTER_H__
 
-#include "coord.h"
-#include "segment.h"
 #include "blif.h"
 #include "placer.h"
-
-struct cost_coord {
-	unsigned int cost;
-	struct coordinate coord;
-};
-
-struct routings {
-	int n_routed_nets;
-	struct routed_net *routed_nets;
-
-	struct net_pin_map *npm;
-};
-
-struct routed_segment {
-	struct segment seg;
-
-	int n_coords;
-	struct coordinate *coords;
-
-	int score;
-
-	struct routed_net *net;
-
-	struct routed_segment *parent;
-	int n_child_segments;
-	struct routed_segment **child_segments;
-	int n_child_pins;
-	struct placed_pin **child_pins;
-};
-
-struct routed_segment_head {
-	struct routed_segment_head *next;
-	struct routed_segment rseg;
-};
-
-struct routed_net {
-	net_t net;
-
-	/* pins connected by this net;
-	 * pins are references to a struct placed_pins
-	 */
-	int n_pins;
-	struct placed_pin *pins;
-
-	struct routed_segment_head *routed_segments;
-};
+#include "base_router.h"
 
 struct routings *route(struct blif *, struct cell_placements *);
 struct routings *copy_routings(struct routings *);

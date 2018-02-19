@@ -21,6 +21,7 @@ void usage(char *argv0)
 	printf("Options:\n");
 //	printf("  -l, --library=<yaml>       Cell library YAML file\n");
 	printf("  -o, --output=<dir>         Directory to place output files\n");
+	printf("  -s, --seed=<number>        Seed the random number generator\n");
 }
 
 int main(int argc, char **argv)
@@ -35,19 +36,26 @@ int main(int argc, char **argv)
 	char output_dir[MAXPATHLEN];
 	getcwd(output_dir, MAXPATHLEN);
 
+	// random seed
+	int seed = 0;
+
 	// process long options
 	static struct option longopts[] = {
 		// {"library", optional_argument, NULL, 'l'},
 		{"output" , optional_argument, NULL, 'o'},
+		{"seed"   , optional_argument, NULL, 's'},
 		{NULL,                      0, NULL,   0}
 	};
 
 	char c;
 	int options_supplied = 0;
-	while ((c = getopt_long(argc, argv, "i:o:", longopts, NULL)) != -1) {
+	while ((c = getopt_long(argc, argv, "i:o:s:", longopts, NULL)) != -1) {
 		switch (c) {
 		case 'o':
 			realpath(optarg, output_dir);
+			break;
+		case 's':
+			seed = atoi(optarg);
 			break;
 		default:
 			usage(argv0);
@@ -109,6 +117,9 @@ int main(int argc, char **argv)
 
 	cl = read_cell_library(cell_library_file);
 	fclose(cell_library_file);
+
+	printf("[dewey] seeding random generator to %d\n", seed);
+	srandom(seed);
 
 	/* begin with initial placement */
 	struct cell_placements *initial_placement = placer_initial_place(blif, cl);

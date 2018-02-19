@@ -80,8 +80,9 @@ static void init_routing_group_with_pin(struct routing_group *rg, struct usage_m
 
 static void init_routing_group_with_segment(struct routing_group *rg, struct usage_matrix *m, struct routed_segment *rseg, struct routing_group **visited)
 {
-	for (int i = 0; i < rseg->n_coords; i++) {
-		struct coordinate c = rseg->coords[i];
+	struct coordinate c = rseg->seg.end;
+	for (int i = 0; i < rseg->n_backtraces; i++) {
+		c = disp_backtrace(c, rseg->bt[i]);
 		assert(in_usage_bounds(m, c));
 
 		struct cost_coord next = {0, c};
@@ -190,122 +191,142 @@ static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
 	}
 }
 
-struct coordinate disp_backtrace(struct coordinate c, enum backtrace b)
-{
-	switch (b) {
-	case BT_WEST:
-		c.x--; break;
-	case BT_EAST:
-		c.x++; break;
-	case BT_NORTH:
-		c.z--; break;
-	case BT_SOUTH:
-		c.z++; break;
-	case BT_UP:
-		c.y += 3; break;
-	case BT_DOWN:
-		c.y -= 3; break;
-	default:
-		break;
-	}
-
-	return c;
-}
-
+// TODO: implement this again
 #define ROUTER_PREFER_CONTINUE_IN_DIRECTION 0
 
-static int extend_coords_from_backtrace(struct routed_segment *rseg, struct usage_matrix *m,
-	struct coordinate c, enum backtrace *bt, int coords_size)
+// not only reverse the backtrace order but also invert the backtrace direction
+// example: moving north, north, west, end:
+// E<A
+//   A
+//   S
+// becomes: moving east, south, south, end:
+// S>V
+//   V
+//   E
+static void invert_backtrace_sequence(enum backtrace *bt, int n_bt)
 {
-	assert(rseg);
-	assert(rseg->coords);
-	assert(rseg->n_coords < coords_size);
+	int i;
+	enum backtrace tmp;
 
-	struct coordinate curr = c;
-	rseg->coords[rseg->n_coords++] = curr;
-	if (rseg->n_coords >= coords_size) {
-		coords_size *= 2;
-		rseg->coords = realloc(rseg->coords, coords_size * sizeof(struct coordinate));
+	for (i = 0; i < n_bt / 2; i++) {
+		tmp = bt[i];
+		bt[i] = bt[n_bt - 1 - i];
+		bt[n_bt - i - 1] = tmp;
 	}
 
-#if ROUTER_PREFER_CONTINUE_IN_DIRECTION
-	int prev_bt = BT_NONE;
-#endif
-	while (bt[usage_idx(m, curr)] != BT_START) {
-		enum backtrace bt_ent = bt[usage_idx(m, curr)];
-		assert(bt_ent != BT_NONE);
-
-		struct coordinate next = disp_backtrace(curr, bt_ent);
-
-#if ROUTER_PREFER_CONTINUE_IN_DIRECTION
-		struct coordinate cont = disp_backtrace(curr, prev_bt);
-		if (prev_bt != BT_NONE && in_usage_bounds(m, cont) && cost[usage_idx(m, cont)] <= usage_idx(m, next)) {
-			curr = cont;
-		else
-			prev_bt = bt_ent;
-#endif
-
-		if (is_vertical(bt_ent))
-			mark_via_violation_zone(m, curr);
-
-		curr = next;
-		assert(in_usage_bounds(m, curr));
-
-		if (is_vertical(bt_ent))
-			mark_via_violation_zone(m, curr);
-
-		rseg->coords[rseg->n_coords++] = curr;
-		if (rseg->n_coords >= coords_size) {
-			coords_size *= 2;
-			rseg->coords = realloc(rseg->coords, coords_size * sizeof(struct coordinate));
-		}
-	}
-
-	return coords_size;
+	for (i = 0; i < n_bt; i++)
+		bt[i] = invert_backtrace(bt[i]);
 }
 
-static void reverse_coords(struct coordinate *coords, int n_coords)
+#define INITIAL_BT_SIZE 4
+
+static int append_backtrace(enum backtrace ent, struct routed_segment *rseg, int bt_size)
 {
-	struct coordinate tmp;
-	for (int i = 0; i < n_coords / 2; i++) {
-		tmp = coords[i];
-		coords[i] = coords[n_coords - 1 - i];
-		coords[n_coords - i - 1] = tmp;
+	assert(rseg->n_backtraces < bt_size);
+	rseg->bt[rseg->n_backtraces++] = ent;
+	if (rseg->n_backtraces >= bt_size) {
+		bt_size *= 2;
+		rseg->bt = realloc(rseg->bt, bt_size * sizeof(enum backtrace));
 	}
+	return bt_size;
 }
 
-#define INITIAL_COORDS_SIZE 4
-/* create a routed_segment based on two backtraces:
-   from a, to a BT_START in a_bt, and from b, to a BT_START in b_bt.
-   a and b should be adjacent. */
-struct routed_segment make_segment_from_points(struct usage_matrix *m,
+// starting from a coordinate, build a backtrace array tracing from `c` to the
+// first instance of BT_START. the array is necessarily backwards
+// create a routed_segment based on two backtraces:
+// from a, to a BT_START in a_bt, and from b, to a BT_START in b_bt.
+// a and b should be adjacent.
+static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 		struct coordinate a, struct coordinate b,
 		enum backtrace *a_bt, enum backtrace *b_bt)
 {
-	int coords_size = INITIAL_COORDS_SIZE;
+	int bt_size = INITIAL_BT_SIZE;
 	struct routed_segment rseg = {{{0, 0, 0}, {0, 0, 0}}, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL};
-	rseg.coords = calloc(coords_size, sizeof(struct coordinate));
+	rseg.bt = calloc(bt_size, sizeof(enum backtrace));
 
-	// create points from A side, and reverse these
-	coords_size = extend_coords_from_backtrace(&rseg, m, a, a_bt, coords_size);
-	reverse_coords(rseg.coords, rseg.n_coords);
-	rseg.seg.start = rseg.coords[0];
+	enum backtrace b_to_a = compute_backtrace(b, a);
 
-	// create points from B side, and do not reverse these
-	extend_coords_from_backtrace(&rseg, m, b, b_bt, coords_size);
-	rseg.seg.end = rseg.coords[rseg.n_coords - 1];
+	enum backtrace ent;
 
-/*
-	printf("[msfp] made segment: ");
-	for (int i = 0; i < rseg.n_coords; i++) {
-		struct coordinate c = rseg.coords[i];
+	printf("\n[msfb] met at (%d, %d, %d) and (%d, %d, %d)\n", a.y, a.z, a.x, b.y, b.z, b.x);
+
+	// create backtrace from B side (the end)
+	while (b_bt[usage_idx(m, b)] != BT_START) {
+		assert(in_usage_bounds(m, b));
+		ent = b_bt[usage_idx(m, b)];
+		assert(ent != BT_NONE);
+
+		if (is_vertical(ent))
+			mark_via_violation_zone(m, b);
+
+		printf("(%d, %d, %d) ", b.y, b.z, b.x);
+		b = disp_backtrace(b, ent);
+		assert(in_usage_bounds(m, b));
+
+		if (is_vertical(ent))
+			mark_via_violation_zone(m, b);
+
+		bt_size = append_backtrace(ent, &rseg, bt_size);
+	}
+	printf("n_bt = %d\n", rseg.n_backtraces);
+
+	// now, at BT_START, we are at the end of the B side
+	rseg.seg.end = b;
+
+	// invert the B backtrace
+	invert_backtrace_sequence(rseg.bt, rseg.n_backtraces);
+
+	// add backtrace bridging (original) B and A
+	bt_size = append_backtrace(b_to_a, &rseg, bt_size);
+
+	// create backtrace to the A side (the start)
+	while (a_bt[usage_idx(m, a)] != BT_START) {
+		assert(in_usage_bounds(m, a));
+		ent = a_bt[usage_idx(m, a)];
+		assert(ent != BT_NONE);
+
+		if (is_vertical(ent))
+			mark_via_violation_zone(m, a);
+
+		printf("(%d, %d, %d) ", a.y, a.z, a.x);
+		a = disp_backtrace(a, ent);
+		assert(in_usage_bounds(m, a));
+
+		if (is_vertical(ent))
+			mark_via_violation_zone(m, a);
+
+		bt_size = append_backtrace(ent, &rseg, bt_size);
+	}
+	printf("n_bt = %d\n", rseg.n_backtraces);
+
+	// now, at BT_START again, we are at the start of the A side
+	rseg.seg.start = a;
+
+	// todo: realloc() to resize rseg->bt to size
+	printf("[msfb] end: (%d, %d, %d)\n[msfb] points: ", b.y, b.z, b.x);
+	struct coordinate c = rseg.seg.end;
+	for (int i = 0; i < rseg.n_backtraces; i++) {
+		c = disp_backtrace(c, rseg.bt[i]);
 		printf("(%d, %d, %d) ", c.y, c.z, c.x);
 	}
-*/
-
+	printf("\n[msfb] start: (%d, %d, %d)\n", a.y, a.z, a.x);
+	printf("\n");
 	return rseg;
 }
 
+int segment_in_bounds(struct usage_matrix *m, struct routed_segment *rseg)
+{
+	struct coordinate c = rseg->seg.end;
+	for (int i = 0; i < rseg->n_backtraces; i++)
+		if (!in_usage_bounds(m, (c = disp_backtrace(c, rseg->bt[i]))))
+			return 0;
+
+	return 1;
+}
+
+static enum backtrace backtraces[] = {BT_WEST, BT_NORTH, BT_EAST, BT_SOUTH, BT_DOWN, BT_UP};
+static struct coordinate movement_offsets[] = {{0, 0, 1}, {0, 1, 0}, {0, 0, -1}, {0, -1, 0}, {3, 0, 0}, {-3, 0, 0}};
+static int n_movements = sizeof(movement_offsets) / sizeof(struct coordinate);
 
 // see silk.md for a description of this algorithm
 // accepts a routed_net object, with any combination of previously-routed
@@ -322,8 +343,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 	for (int i = 0; i < rn->n_pins; i++)
 		assert(in_usage_bounds(m, rn->pins[i].coordinate));
 	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
-		for (int j = 0; j < rsh->rseg.n_coords; j++)
-			assert(in_usage_bounds(m, rsh->rseg.coords[j]));
+		assert(segment_in_bounds(m, &rsh->rseg));
 
 	// track visiting routing_groups; NULL if not-yet visited
 	struct routing_group **visited = calloc(usage_size, sizeof(struct routing_group *));
@@ -404,7 +424,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 					// create a new segment arising from the merging of these two routing groups
 					struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
 					rsh->next = NULL;
-					rsh->rseg = make_segment_from_points(m, c, cc, rg->bt, visited_rg->bt);
+					rsh->rseg = make_segment_from_backtrace(m, c, cc, rg->bt, visited_rg->bt);
 					rsh->rseg.net = rn;
 					routed_net_add_segment_node(rn, rsh);
 

@@ -29,23 +29,29 @@ struct coordinate placements_top_left_most_point(struct cell_placements *cp)
 /* determine the top-left most point of routings */
 struct coordinate routings_top_left_most_point(struct routings *rt)
 {
-	int unfound = 1;
+	int started = 0;
 	struct coordinate d;
 
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
-			for (int k = 0; k < rsh->rseg.n_coords; k++) {
-				struct coordinate c = rsh->rseg.coords[k];
-				if (unfound) {
-					d = c;
-					unfound = 0;
-				} else {
-					d = coordinate_piecewise_min(c, d);
-				}
-				// printf("[rtlmp] c = (%d, %d, %d)\n", c.y, c.z, c.x);
+			struct coordinate c = rsh->rseg.seg.end;
+			if (!started) {
+				started = 1;
+				d = c;
+			} else {
+				d = coordinate_piecewise_min(c, d);
 			}
+
+			for (int k = 0; k < rsh->rseg.n_backtraces; k++) {
+				c = disp_backtrace(c, rsh->rseg.bt[k]);
+				d = coordinate_piecewise_min(c, d);
+			}
+
+			d = coordinate_piecewise_min(rsh->rseg.seg.start, d);
 		}
 	}
+
+	printf("[tlmp] (%d, %d, %d)\n", d.y, d.z, d.x);
 
 	return d;
 }
@@ -66,6 +72,22 @@ void recenter(struct cell_placements *cp, struct routings *rt, int xz_margin)
 
 	if (rt)
 		routings_displace(rt, coordinate_neg(disp));
+}
+
+void place_block(struct extraction *e, struct coordinate c)
+{
+	c.z += 2;
+	c.x += 2;
+
+	struct dimensions d = e->dimensions;
+
+	if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
+		return;
+
+	e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
+
+	if (c.y == 3)
+		e->blocks[(c.y - 1) * d.z * d.x + c.z * d.x + c.x] = 5;
 }
 
 struct extraction *extract(struct cell_placements *cp, struct routings *rt)
@@ -120,17 +142,16 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
-			for (int k = 0; k < rsh->rseg.n_coords; k++) {
-				struct coordinate c = rsh->rseg.coords[k];
-				c = coordinate_sub(c, disp);
-				c.z += 2;
-				c.x += 2;
-				if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
-					continue;
-				e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
-				if (c.y == 3)
-					e->blocks[(c.y - 1) * d.z * d.x + c.z * d.x + c.x] = 5;
+			struct coordinate c = rsh->rseg.seg.end;
+			for (int k = 0; k < rsh->rseg.n_backtraces; k++) {
+				c = disp_backtrace(c, rsh->rseg.bt[k]);
+				struct coordinate cc = coordinate_sub(c, disp);
+
+				place_block(e, cc);
 			}
+
+			place_block(e, coordinate_sub(rsh->rseg.seg.start, disp));
+			place_block(e, coordinate_sub(rsh->rseg.seg.end, disp));
 		}
 	}
 

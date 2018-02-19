@@ -1,7 +1,7 @@
 #ifndef __SEGMENT_H__
 #define __SEGMENT_H__
 
-#include "cell.h"
+#include "coord.h"
 
 struct segment {
 	struct coordinate start;
