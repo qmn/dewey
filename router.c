@@ -163,16 +163,6 @@ struct dimensions compute_routings_dimensions(struct routings *rt)
 	return dd;
 }
 
-/* maze routing routines */
-typedef unsigned int visitor_t;
-visitor_t to_visitor_t(unsigned int i) {
-	return i + 1;
-}
-
-unsigned int from_visitor_t(visitor_t i) {
-	return i - 1;
-}
-
 int segment_routed(struct routed_segment *rseg)
 {
 	struct segment seg = rseg->seg;
@@ -212,11 +202,11 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 	struct coordinate tlcp = placements_top_left_most_point(cp);
 	struct coordinate tlrt = routings_top_left_most_point(rt);
 	struct coordinate top_left_most = coordinate_piecewise_min(tlcp, tlrt);
-/*
+	/*
 	printf("[count_routings_violations] tlcp x: %d, y: %d, z: %d\n", tlcp.x, tlcp.y, tlcp.z);
 	printf("[count_routings_violations] tlrt x: %d, y: %d, z: %d\n", tlrt.x, tlrt.y, tlrt.z);
 	printf("[count_routings_violations] top_left_most x: %d, y: %d, z: %d\n", top_left_most.x, top_left_most.y, top_left_most.z);
-*/
+	*/
 	assert(top_left_most.x >= 0 && top_left_most.y >= 0 && top_left_most.z >= 0);
 
 	struct dimensions d = dimensions_piecewise_max(compute_placement_dimensions(cp), compute_routings_dimensions(rt));
@@ -483,6 +473,18 @@ void rip_up_segment(struct routed_segment *rseg)
 	rseg->score = 0;
 }
 
+void rip_up_net(struct routed_net *rn)
+{
+	struct routed_segment_head *next = rn->routed_segments, *curr;
+	while (next) {
+		curr = next;
+		next = next->next;
+		rip_up_segment(&curr->rseg);
+		free(curr);
+	}
+	rn->routed_segments = NULL;
+}
+
 // to sort in descending order, reverse the subtraction
 int rseg_score_cmp(const void *a, const void *b)
 {
@@ -571,6 +573,54 @@ void assert_in_bounds(struct routed_net *rn)
 	}
 }
 
+int score_net(struct routed_net *rn)
+{
+	int total = 0;
+	struct routed_segment_head *rsh;
+	for (rsh = rn->routed_segments; rsh != NULL; rsh = rsh->next)
+		total += rsh->rseg.score;
+	return total;
+}
+
+int score_routings(struct routings *rt)
+{
+	int total = 0;
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++)
+		total += score_net(&rt->routed_nets[i]);
+	return total;
+}
+
+// in one round of optimization, rip up each net once in random order and
+// re-route it. returns violations seen
+int optimize_routings(struct cell_placements *cp, struct routings *rt, FILE *log)
+{
+	char *rerouted = calloc(rt->n_routed_nets + 1, sizeof(char));
+	int n_rerouted = 0;
+	int violations = 0;
+	
+	while (n_rerouted < rt->n_routed_nets) {
+		net_t i = rand() % (rt->n_routed_nets + 1);
+		if (rerouted[i])
+			continue;
+
+		rip_up_net(&rt->routed_nets[i]);
+
+		recenter(cp, rt, 2);
+		maze_reroute(cp, rt, &rt->routed_nets[i], 2);
+		assert_in_bounds(&rt->routed_nets[i]);
+
+		violations += count_routings_violations(cp, rt, log);
+		// printf("[optimizing] net %d: %d violations (should be none)\n", i, violations);
+		// assert(violations == 0);
+
+		rerouted[i]++;
+		n_rerouted++;
+	}
+
+	free(rerouted);
+	return violations;
+}
+
 /* main route subroutine */
 struct routings *route(struct blif *blif, struct cell_placements *cp)
 {
@@ -578,11 +628,12 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	struct net_pin_map *npm = placer_create_net_pin_map(pp);
 
 	struct routings *rt = initial_route(blif, npm);
-	print_routings(rt);
+	// print_routings(rt);
 	recenter(cp, rt, 2);
 
 	int iterations = 0;
-	int violations = 0;
+	int violations;
+	int routings_score;
 
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
@@ -592,20 +643,24 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 	printf("\n");
 	while ((violations = count_routings_violations(cp, rt, log)) > 0 && !interrupt_routing) {
-		struct rip_up_set rus = natural_selection(rt, log);
-		// sort elements by highest score
-		qsort(rus.rip_up, rus.n_ripped, sizeof(struct routed_segment *), rseg_score_cmp);
+		routings_score = score_routings(rt);
 
+		// sort segments for rip-up by highest score
+		struct rip_up_set rus = natural_selection(rt, log);
+		qsort(rus.rip_up, rus.n_ripped, sizeof(struct routed_segment *), rseg_score_cmp);
 		struct routed_net **nets_ripped = calloc(rus.n_ripped, sizeof(struct routed_net *));
 
-		printf("\r[router] Iterations: %4d, Violations: %d, Segments to re-route: %d", iterations + 1, violations, rus.n_ripped);
-		fprintf(log, "\n[router] Iterations: %4d, Violations: %d, Segments to re-route: %d\n", iterations + 1, violations, rus.n_ripped);
+		printf("\r[router] Iterations: %4d, Score: %d, Violations: %d, Segments to re-route: %d",
+		       iterations + 1, routings_score, violations, rus.n_ripped);
+		fprintf(log, "\n[router] Iterations: %4d, Score: %d, Violations: %d, Segments to re-route: %d\n",
+		             iterations + 1, routings_score, violations, rus.n_ripped);
 		fflush(stdout);
 		fflush(log);
 
 		// rip up all segments in rip-up set
 		for (int i = 0; i < rus.n_ripped; i++) {
-			fprintf(log, "[router] Ripping up net %d, segment %p (score %d)\n", rus.rip_up[i]->net->net, (void *)rus.rip_up[i], rus.rip_up[i]->score);
+			fprintf(log, "[router] Ripping up net %d, segment %p (score %d)\n",
+			             rus.rip_up[i]->net->net, (void *)rus.rip_up[i], rus.rip_up[i]->score);
 			nets_ripped[i] = rus.rip_up[i]->net;
 			rip_up_segment(rus.rip_up[i]);
 
@@ -642,35 +697,43 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 		iterations++;
 	}
 
+	// print information about routing one last time
+	printf("\r[router] Iterations: %4d, Score: %d, Violations: %d\n",
+	       iterations + 1, routings_score, violations);
+	fprintf(log, "\n[router] Iterations: %4d, Score: %d, Violations: %d\n",
+		     iterations + 1, routings_score, violations);
+	fflush(stdout);
+	fflush(log);
+
 	signal(SIGINT, SIG_DFL);
 
+	// optimize routing by replacing a net wholesale and rerouting it
 	printf("\n[router] Solution found! Optimizing...\n");
 	fprintf(log, "\n[router] Solution found! Optimizing...\n");
-	fclose(log);
 
-/*
-	// rip up a net wholesale and reroute it
-	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		struct routed_segment_head *next = rt->routed_nets[i].routed_segments, *curr;
-		do {
-			curr = next;
-			next = next->next;
-			rip_up_segment(&curr->rseg);
-			free(curr);
-		} while (next);
-		rt->routed_nets[i].routed_segments = NULL;
+	iterations = 0;
+	interrupt_routing = 0;
+	signal(SIGINT, router_sigint_handler);
+	int prev;
+	do {
+		prev = routings_score;
+		violations = optimize_routings(cp, rt, log);
+		routings_score = score_routings(rt);
 
-		recenter(cp, rt, 2);
-		maze_reroute(cp, rt, &rt->routed_nets[i], 2);
+		printf("\r[optimizing] Iterations: %4d, Score: %d, Violations: %d",
+		       iterations + 1, routings_score, violations);
+		fprintf(log, "\n[optimizing] Iterations: %4d, Score: %d, Violations: %d\n",
+		             iterations + 1, routings_score, violations);
+		fflush(stdout);
+		fflush(log);
 
-		violations = count_routings_violations(cp, rt, log);
-		printf("[optimizing] net %d: %d violations (should be none)\n", i, violations);
-		assert(violations == 0);
-	}
-*/
+		iterations++;
+	} while ((routings_score < prev || violations > 0) && !interrupt_routing);
+	signal(SIGINT, SIG_DFL);
 
 	printf("[router] Routing complete!\n");
-	print_routings(rt);
+	// print_routings(rt);
+	fclose(log);
 
 	free_pin_placements(pp);
 	// free_net_pin_map(npm); // screws with extract in vis_png

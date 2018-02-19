@@ -408,6 +408,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 					rsh->rseg.net = rn;
 					routed_net_add_segment_node(rn, rsh);
 
+					// add, as children, the two groups formed by this segment
 					struct routed_segment *rseg = &rsh->rseg;
 					assert(rseg);
 					routed_segment_add_child(rseg, rg);
@@ -419,10 +420,9 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 					init_routing_group_with_segment(new_rg, m, rseg, visited);
 					assert(!new_rg->origin_pin);
 
+					// add the group to the list
 					rgs[n_groups++] = new_rg;
-
 					assert(n_groups <= total_groups);
-
 					remaining_groups--;
 					break;
 				}
