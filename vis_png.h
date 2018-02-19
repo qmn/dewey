@@ -4,7 +4,7 @@
 #include "placer.h"
 #include "router.h"
 
-void vis_png_draw_placements(struct blif *, struct cell_placements *, struct routings *);
+void vis_png_draw_placements(char *, struct blif *, struct cell_placements *, struct routings *);
 
 unsigned char *flatten(struct cell_placements *);
 

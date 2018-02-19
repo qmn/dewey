@@ -1,22 +1,82 @@
+#include <getopt.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <sys/param.h>
+#include <sys/stat.h>
 
-#include "extract.h"
 #include "blif.h"
+#include "cell.h"
+#include "extract.h"
 #include "placer.h"
 #include "router.h"
-#include "cell.h"
 #include "vis_png.h"
+
+void usage(char *argv0)
+{
+	printf("dewey -- a placer and router tool for Minecraft redstone circuits\n");
+	printf("\n");
+	printf("Usage: %s [options] <input BLIF file>\n", argv0);
+	printf("Options:\n");
+//	printf("  -l, --library=<yaml>       Cell library YAML file\n");
+	printf("  -o, --output=<dir>         Directory to place output files\n");
+}
 
 int main(int argc, char **argv)
 {
-	if (argc < 2) {
-		/* print help text */
-		printf("dewey -- a placer and router tool for Minecraft redstone circuits\n");
-		printf("\n");
-		printf("Usage: %s <input BLIF file>\n", argv[0]);
+	// argv0 to remember binary name
+	char *argv0 = argv[0];
+
+	// input blif (required)
+	char *input_blif = NULL;
+
+	// output directory
+	char output_dir[MAXPATHLEN];
+	getcwd(output_dir, MAXPATHLEN);
+
+	// process long options
+	static struct option longopts[] = {
+		// {"library", optional_argument, NULL, 'l'},
+		{"output" , optional_argument, NULL, 'o'},
+		{NULL,                      0, NULL,   0}
+	};
+
+	char c;
+	int options_supplied = 0;
+	while ((c = getopt_long(argc, argv, "i:o:", longopts, NULL)) != -1) {
+		switch (c) {
+		case 'o':
+			realpath(optarg, output_dir);
+			break;
+		default:
+			usage(argv0);
+			return 1;
+		}
+		argc -= optind;
+		argv += optind;
+		options_supplied++;
+	}
+
+	if (!options_supplied && argc == 2)
+		input_blif = argv[1];
+	else if (options_supplied && argc == 1)
+		input_blif = argv[0];
+
+	// process output dir
+	strncat(output_dir, "/", MAXPATHLEN-1);
+	printf("output dir is %s\n", output_dir);
+	struct stat sb;
+	if (stat(output_dir, &sb) != 0) {
+		printf("[dewey] making output dir %s\n", output_dir);
+		mkdir(output_dir, 0755);
+	} else if (!S_ISDIR(sb.st_mode)) {
+		printf("[dewey] output dir %s exists but isn't a directory, exiting\n", output_dir);
+		return 1;
+	}
+
+	if (!input_blif) {
+		usage(argv0);
 		return 1;
 	}
 
@@ -24,7 +84,7 @@ int main(int argc, char **argv)
 	FILE *blif_file;
 	struct blif *blif;
 
-	blif_file = fopen(argv[1], "r");
+	blif_file = fopen(input_blif, "r");
 
         if (!blif_file) {
                 printf("[dewey] could not read %s: %s\n", argv[1], strerror(errno));
@@ -58,7 +118,8 @@ int main(int argc, char **argv)
 	printf("[dewey] intial dimensions: {x: %d, y: %d, z: %d}\n",
 		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
-	struct cell_placements *new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 100, 100, 100);
+	struct cell_placements *new_placements;
+	new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 100, 100, 100);
 	// struct cell_placements *new_placements = initial_placement;
 	// print_cell_placements(new_placements);
 
@@ -83,7 +144,7 @@ int main(int argc, char **argv)
 
 	struct routings *routings = route(blif, new_placements);
 
-	vis_png_draw_placements(blif, new_placements, routings);
+	vis_png_draw_placements(output_dir, blif, new_placements, routings);
 
         free_blif(blif);
 	free_cell_library(cl);

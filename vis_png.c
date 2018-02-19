@@ -5,6 +5,7 @@
 #include <gd.h>
 #include <gdfonts.h>
 #include <assert.h>
+#include <sys/param.h>
 
 #include "extract.h"
 #include "router.h"
@@ -108,7 +109,7 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 
 #define ARBITRARY_LIMIT 1000
 
-void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, struct routings *rt)
+void vis_png_draw_placements(char *output_dir, struct blif *blif, struct cell_placements *cp, struct routings *rt)
 {
 	struct extraction *e = extract(cp, rt);
 	struct dimensions d = e->dimensions;
@@ -176,10 +177,14 @@ void vis_png_draw_placements(struct blif *blif, struct cell_placements *cp, stru
 
 	free_textures_0(textures_0);
 
-	FILE *f = fopen("placement.png", "wb");
+	char *bn = "placement.png";
+	char fn[MAXPATHLEN];
+	strncpy(fn, output_dir, MAXPATHLEN);
+	strncat(fn, bn, MAXPATHLEN-strnlen(bn, MAXPATHLEN));
+	FILE *f = fopen(fn, "wb");
 	gdImagePng(im, f);
 	fclose(f);
 
-	printf("[vis_png] wrote to placement.png\n");
+	printf("[vis_png] wrote to %s\n", fn);
 }
 
