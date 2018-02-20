@@ -268,6 +268,30 @@ static struct dimensions placement_overlaps(struct coordinate pc, struct coordin
 	return (struct dimensions){yo, zo, xo};
 }
 
+static int compute_spread_penalty(struct cell_placements *cp)
+{
+	int i;
+	int score = 0;
+	struct coordinate c = {0, 0, 0};
+
+	// compute "center" by averaging all placements
+	for (i = 0; i < cp->n_placements; i++)
+		c = coordinate_add(c, cp->placements[i].placement);
+
+	c.y = c.y / cp->n_placements;
+	c.z = c.z / cp->n_placements;
+	c.x = c.x / cp->n_placements;
+
+	// compute pythagorean distance from center
+	for (i = 0; i < cp->n_placements; i++) {
+		struct coordinate cc = cp->placements[i].placement;
+		int dz = cc.z - c.z, dx = cc.x - c.x;
+		score += roundl(sqrt((double)(dx * dx)) + (double)(dz * dz));
+	}
+
+	return score;
+}
+
 // compute overlap penalty in a smarter way:
 // compare placements cell-wise, to avoid large memory allocation
 // if cells are more apart than the largest dimension of all of them,
@@ -534,10 +558,11 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 	int bounds = compute_out_of_bounds_penalty(placements, boundary);
 	int design_size = compute_design_size_penalty(placements);
 	int squareness = compute_squareness_penalty(placements);
+	int spread = 0; // compute_spread_penalty(placements);
 #ifdef PLACER_SCORE_DEBUG
-	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d\n", overlap, wire_length, bounds, design_size);
+	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d, spread: %d\n", overlap, wire_length, bounds, design_size, spread);
 #endif
-	return (overlap.violations * overlap.violations) + overlap.score + wire_length + bounds + design_size + squareness;
+	return (overlap.violations * overlap.violations) + overlap.score + wire_length + bounds + design_size + squareness + spread;
 }
 
 static int accept(int new_score, int old_score, double t)
