@@ -162,8 +162,8 @@ struct dimensions compute_routings_dimensions(struct routings *rt)
 
 			dbr = coordinate_piecewise_max(dbr, rseg.seg.start);
 			dbr = coordinate_piecewise_max(dbr, rseg.seg.end);
-			dtl = coordinate_piecewise_max(dtl, rseg.seg.start);
-			dtl = coordinate_piecewise_max(dtl, rseg.seg.end);
+			dtl = coordinate_piecewise_min(dtl, rseg.seg.start);
+			dtl = coordinate_piecewise_min(dtl, rseg.seg.end);
 		}
 	}
 
@@ -265,6 +265,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 			for (int k = 0; k < rseg->n_backtraces; k++) {
 				c = disp_backtrace(c, rseg->bt[k]);
 				// printf("[crv] c = (%d, %d, %d)\n", c.y, c.z, c.x);
+				assert(c.y >= 0 && c.z >= 0 && c.x >= 0 && c.y <= d.y && c.z <= d.z && c.x <= d.x);
 
 				int block_in_violation = 0;
 				for (int m = 0; m < sizeof(check_offsets) / sizeof(struct coordinate); m++) {
@@ -325,6 +326,7 @@ static int count_routings_violations(struct cell_placements *cp, struct routings
 
 			for (int k = 0; k < rseg->n_backtraces; k++) {
 				c = disp_backtrace(c, rseg->bt[k]);
+				assert(c.y >= 0 && c.z >= 0 && c.x >= 0 && c.y <= d.y && c.z <= d.z && c.x <= d.x);
 				int idx = (c.y * d.z * d.x) + (c.z * d.x) + c.x;
 				matrix[idx]++;
 
@@ -731,9 +733,11 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	iterations = 0;
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
-	int prev;
+	int prev = routings_score;
 	do {
-		prev = routings_score;
+		if (routings_score < prev)
+			prev = routings_score;
+
 		violations = optimize_routings(cp, rt, log);
 		routings_score = score_routings(rt);
 

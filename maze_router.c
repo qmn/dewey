@@ -388,6 +388,10 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 			if (rg->bt[usage_idx(m, cc)] == BT_START)
 				continue;
 
+			// do not allow up/down movements from a BT_START
+			if (rg->bt[usage_idx(m, c)] == BT_START && is_vertical(backtraces[movt]))
+				continue;
+
 			int violation = usage_matrix_violated(m, cc);
 			unsigned int cost_delta = violation ? violation_cost : movement_cost;
 			unsigned int new_cost = rg->cost[usage_idx(m, c)] + cost_delta;
