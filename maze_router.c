@@ -314,38 +314,50 @@ static enum backtrace backtraces[] = {BT_WEST, BT_NORTH, BT_EAST, BT_SOUTH, BT_D
 static struct coordinate movement_offsets[] = {{0, 0, 1}, {0, 1, 0}, {0, 0, -1}, {0, -1, 0}, {3, 0, 0}, {-3, 0, 0}};
 static int n_movements = sizeof(movement_offsets) / sizeof(struct coordinate);
 
-// see silk.md for a description of this algorithm
-// accepts a routed_net object, with any combination of previously-routed
-// segments and unrouted pins and uses Lee's algorithm to connect them
-// assumes that all routed_segments are contiguously placed
-void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
-{
-	if (rn->n_pins <= 1)
-		return;
+// also confusingly abbreviated MRI
+struct maze_route_instance {
+	struct routed_net *rn;
 
-	// create usage matrix and ensure everything is in-bounds
-	struct usage_matrix *m = create_usage_matrix(cp, rt, xz_margin);
-	unsigned int usage_size = USAGE_SIZE(m);
+	struct usage_matrix *m;
+	struct routing_group **visited;
+
+	struct routing_group **rgs;
+
+	int n_groups;         // groups we currently have
+	int remaining_groups; // groups remaining to combine
+	int total_groups;     // groups we started out with
+};
+
+struct maze_route_instance create_maze_route_instance(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
+{
+	struct maze_route_instance mri = {NULL, NULL, NULL, NULL, 0, 0, 0};
+
+	mri.rn = rn;
+
+	// create usage matrix
+	mri.m = create_usage_matrix(cp, rt, xz_margin);
 	for (int i = 0; i < rn->n_pins; i++)
-		assert(in_usage_bounds(m, rn->pins[i].coordinate));
+		assert(in_usage_bounds(mri.m, rn->pins[i].coordinate));
 	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
-		assert(segment_in_bounds(m, &rsh->rseg));
+		assert(segment_in_bounds(mri.m, &rsh->rseg));
+
+	unsigned int usage_size = USAGE_SIZE(mri.m);
 
 	// track visiting routing_groups; NULL if not-yet visited
-	struct routing_group **visited = calloc(usage_size, sizeof(struct routing_group *));
+	mri.visited = calloc(usage_size, sizeof(struct routing_group *));
 
 	// at fewest we can have just one remaining group
-	int n_groups = 0;
-	int total_groups = count_groups_to_merge(rn) * 2 - 1;
-	struct routing_group **rgs = calloc(total_groups, sizeof(struct routing_group *));
+	mri.n_groups = 0;
+	mri.total_groups = count_groups_to_merge(rn) * 2 - 1;
+	mri.rgs = calloc(mri.total_groups, sizeof(struct routing_group *));
 
 	// initialize parent-less pins
 	for (int i = 0; i < rn->n_pins; i++) {
 		struct placed_pin *p = &rn->pins[i];
 		if (!p->parent) {
 			struct routing_group *pin_rg = alloc_routing_group(usage_size);
-			init_routing_group_with_pin(pin_rg, m, p, visited);
-			rgs[n_groups++] = pin_rg;
+			init_routing_group_with_pin(pin_rg, mri.m, p, mri.visited);
+			mri.rgs[mri.n_groups++] = pin_rg;
 			assert(!pin_rg->origin_segment);
 		}
 	}
@@ -355,113 +367,147 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 		struct routed_segment *rseg = &rsh->rseg;
 		if (!rseg->parent && segment_routed(rseg)) {
 			struct routing_group *seg_rg = alloc_routing_group(usage_size);
-			init_routing_group_with_segment(seg_rg, m, rseg, visited);
-			rgs[n_groups++] = seg_rg;
+			init_routing_group_with_segment(seg_rg, mri.m, rseg, mri.visited);
+			mri.rgs[mri.n_groups++] = seg_rg;
 			assert(!seg_rg->origin_pin);
 		}
 	}
 
-	int remaining_groups = n_groups;
+	mri.remaining_groups = mri.n_groups;
+
+	return mri;
+}
+
+void free_mri(struct maze_route_instance mri)
+{
+	// free things used in routing
+	for (int i = 0; i < mri.n_groups; i++)
+		free_routing_group(mri.rgs[i]);
+	free(mri.rgs);
+	free(mri.visited);
+}
+
+// visit coordinate cc from coordinate c (of routing group rg), by using
+// backtrace bt, merging groups as needed; if it merged, return 1, otherwise
+// return 0
+static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, struct coordinate c, struct coordinate cc, enum backtrace bt)
+{
+	struct usage_matrix *m = mri->m;
+
+	if (!in_usage_bounds(m, cc))
+		return 0;
+
+	// skip this if it's been marked BT_START
+	if (rg->bt[usage_idx(m, cc)] == BT_START)
+		return 0;
+
+	// do not allow up/down movements from a BT_START
+	if (rg->bt[usage_idx(m, c)] == BT_START && is_vertical(bt))
+		return 0;
+
+	int movement_cost = is_vertical(bt) ? 10 : c.y == 3 ? 3 : 1;
+
+	int violation = usage_matrix_violated(m, cc);
+	int violation_cost = 1000 + movement_cost;
+
+	unsigned int cost_delta = violation ? violation_cost : movement_cost;
+	unsigned int new_cost = rg->cost[usage_idx(m, c)] + cost_delta;
+
+	// if the lowest min-heap element expands into another group that is
+	// "independent" (i.e., it is its own parent)
+	struct routing_group *visited_rg = mri->visited[usage_idx(m, cc)];
+	if (visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
+		// we shouldn't expand vertically into another
+		// net, but we won't overwrite the backtraces.
+		if (is_vertical(bt))
+			return 0;
+
+		// if these groups happened to be adjacent already, don't create a new segment;
+		// instead, merge the adjacent group into this one and keep looking
+		if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
+			visited_rg->parent = rg;
+			visited_rg = rg;
+			mri->remaining_groups--;
+		} else {
+			// create a new segment arising from the merging of these two routing groups
+			struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
+			rsh->next = NULL;
+			rsh->rseg = make_segment_from_backtrace(m, c, cc, rg->bt, visited_rg->bt);
+			rsh->rseg.net = mri->rn;
+			routed_net_add_segment_node(mri->rn, rsh);
+
+			// add, as children, the two groups formed by this segment
+			struct routed_segment *rseg = &rsh->rseg;
+			assert(rseg);
+			routed_segment_add_child(rseg, rg);
+			routed_segment_add_child(rseg, visited_rg);
+
+			// create a new routing group based on this segment
+			struct routing_group *new_rg = alloc_routing_group(USAGE_SIZE(m));
+			rg->parent = visited_rg->parent = new_rg;
+			init_routing_group_with_segment(new_rg, m, rseg, mri->visited);
+			assert(!new_rg->origin_pin);
+
+			// add the group to the list
+			mri->rgs[mri->n_groups++] = new_rg;
+			assert(mri->n_groups <= mri->total_groups);
+			mri->remaining_groups--;
+			return 1;
+		}
+	}
+
+	// if we haven't already visited this one, add it to the heap
+	// (and by "we" i mean this exact routing group, not its children)
+	if (visited_rg != rg) {
+		struct cost_coord next = {new_cost, cc};
+		cost_coord_heap_insert(rg->heap, next);
+	}
+
+	// if this location has a lower score, update the cost and backtrace
+	mri->visited[usage_idx(m, cc)] = rg;
+	if (new_cost < rg->cost[usage_idx(m, cc)]) {
+		rg->cost[usage_idx(m, cc)] = new_cost;
+		rg->bt[usage_idx(m, cc)] = bt;
+	}
+
+	return 0;
+}
+
+// see silk.md for a description of this algorithm
+// accepts a routed_net object, with any combination of previously-routed
+// segments and unrouted pins and uses Lee's algorithm to connect them
+// assumes that all routed_segments are contiguously placed
+void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
+{
+	if (rn->n_pins <= 1)
+		return;
+
+	struct maze_route_instance mri = create_maze_route_instance(cp, rt, rn, xz_margin);
 
 	// THERE CAN ONLY BE ONE-- i mean,
 	// repeat until one group remains
-	while (remaining_groups > 1) {
+	while (mri.remaining_groups > 1) {
 		// select the smallest non-empty heap that is also its own parent (rg->parent = rg)
-		struct routing_group *rg = find_smallest_heap(rgs, total_groups);
+		struct routing_group *rg = find_smallest_heap(mri.rgs, mri.total_groups);
 		assert(rg == rg->parent);
 
 		// expand this smallest heap
 		assert(rg->heap->n_elts > 0);
 		struct coordinate c = cost_coord_heap_delete_min(rg->heap).coord;
-		assert(in_usage_bounds(m, c));
+		assert(in_usage_bounds(mri.m, c));
 
 		// for each of the possible movements, expand in that direction
 		for (int movt = 0; movt < n_movements; movt++) {
 			struct coordinate cc = coordinate_add(c, movement_offsets[movt]);
-			int movement_cost = is_vertical(backtraces[movt]) ? 10 : c.y == 3 ? 3 : 1;
-			int violation_cost = 1000 + movement_cost;
 
-			if (!in_usage_bounds(m, cc))
-				continue;
+			int merge_occurred = mri_visit(&mri, rg, c, cc, backtraces[movt]);
 
-			// skip this if it's been marked BT_START
-			if (rg->bt[usage_idx(m, cc)] == BT_START)
-				continue;
-
-			// do not allow up/down movements from a BT_START
-			if (rg->bt[usage_idx(m, c)] == BT_START && is_vertical(backtraces[movt]))
-				continue;
-
-			int violation = usage_matrix_violated(m, cc);
-			unsigned int cost_delta = violation ? violation_cost : movement_cost;
-			unsigned int new_cost = rg->cost[usage_idx(m, c)] + cost_delta;
-
-			// if the lowest min-heap element expands into another group that is "independent" (i.e., it is its own parent)
-			struct routing_group *visited_rg = visited[usage_idx(m, cc)];
-			if (visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
-				// we shouldn't expand vertically into another
-				// net, but we won't overwrite the backtraces.
-				if (is_vertical(backtraces[movt]))
-					continue;
-
-				// if these groups happened to be adjacent already, don't create a new segment;
-				// instead, merge the adjacent group into this one and keep looking
-				if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
-					visited_rg->parent = rg;
-					visited_rg = rg;
-					remaining_groups--;
-				} else {
-					// create a new segment arising from the merging of these two routing groups
-					struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
-					rsh->next = NULL;
-					rsh->rseg = make_segment_from_backtrace(m, c, cc, rg->bt, visited_rg->bt);
-					rsh->rseg.net = rn;
-					routed_net_add_segment_node(rn, rsh);
-
-					// add, as children, the two groups formed by this segment
-					struct routed_segment *rseg = &rsh->rseg;
-					assert(rseg);
-					routed_segment_add_child(rseg, rg);
-					routed_segment_add_child(rseg, visited_rg);
-
-					// create a new routing group based on this segment
-					struct routing_group *new_rg = alloc_routing_group(USAGE_SIZE(m));
-					rg->parent = visited_rg->parent = new_rg;
-					init_routing_group_with_segment(new_rg, m, rseg, visited);
-					assert(!new_rg->origin_pin);
-
-					// add the group to the list
-					rgs[n_groups++] = new_rg;
-					assert(n_groups <= total_groups);
-					remaining_groups--;
-					break;
-				}
-			}
-
-			// if we haven't already visited this one, add it to the heap
-			// (and by "we" i mean this exact routing group, not its children)
-			if (visited_rg != rg) {
-				struct cost_coord next = {new_cost, cc};
-				cost_coord_heap_insert(rg->heap, next);
-			}
-
-			// if this location has a lower score, update the cost and backtrace
-			visited[usage_idx(m, cc)] = rg;
-			if (new_cost < rg->cost[usage_idx(m, cc)]) {
-				rg->cost[usage_idx(m, cc)] = new_cost;
-				rg->bt[usage_idx(m, cc)] = backtraces[movt];
-			}
-
+			if (merge_occurred)
+				break;
 		}
 	}
 
-	// free things used in routing
-	for (int i = 0; i < n_groups; i++)
-		free_routing_group(rgs[i]);
-	free(rgs);
-
-	free(visited);
-
+	free_mri(mri);
 	// printf("[maze_reroute] n_routed_segments=%d, n_pins=%d\n", rn->n_routed_segments, rn->n_pins);
 	// assert(rn->n_routed_segments >= rn->n_pins - 1);
 	// printf("[maze_route] done\n");

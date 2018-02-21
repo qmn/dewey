@@ -412,6 +412,7 @@ struct rip_up_set {
 	struct routed_segment **rip_up;
 };
 
+// remove the routed_segment_head element that has this routed_segment
 struct routed_segment_head *remove_rsh(struct routed_segment *rseg)
 {
 	struct routed_net *rn = rseg->net;
@@ -438,6 +439,29 @@ struct routed_segment_head *remove_rsh(struct routed_segment *rseg)
 
 	node->next = NULL;
 	return node;
+}
+
+void rip_up_segment_parent(struct routed_segment *parent, struct routed_segment *child)
+{
+	int i;
+	int found = 0;
+
+	for (i = 0; i < parent->n_child_segments; i++) {
+		if (parent->child_segments[i] == child) {
+			found = 1;
+			break;
+		}
+	}
+	assert(found);
+
+	// switch the one to remove with the last one, and
+	// force last one to NULL
+	int last = parent->n_child_segments - 1;
+	if (i != last)
+		parent->child_segments[i] = parent->child_segments[last];
+
+	parent->child_segments[last] = NULL;
+	parent->n_child_segments--;
 }
 
 // it's important to maintain the order of the routed segments in the routed
@@ -467,19 +491,7 @@ void rip_up_segment(struct routed_segment *rseg)
 	// find and remove this segment from its parent
 	struct routed_segment *parent_rseg = rseg->parent;
 	if (parent_rseg) {
-		for (int i = 0; i < parent_rseg->n_child_segments; i++) {
-			if (parent_rseg->child_segments[i] == rseg) {
-				if (i < parent_rseg->n_child_segments - 1)
-					parent_rseg->child_segments[i] = parent_rseg->child_segments[parent_rseg->n_child_segments - 1];
-				else
-					parent_rseg->child_segments[i] = NULL;
-
-				parent_rseg->n_child_segments--;
-				break;
-			}
-			// this search should succeed
-			assert(i < parent_rseg->n_child_segments - 1);
-		}
+		rip_up_segment_parent(parent_rseg, rseg);
 	}
 
 	assert(rseg->bt);
@@ -681,10 +693,10 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 			fprintf(log, "[router] Ripping up net %d, segment %p (score %d)\n",
 			             rus.rip_up[i]->net->net, (void *)rus.rip_up[i], rus.rip_up[i]->score);
 			nets_ripped[i] = rus.rip_up[i]->net;
-			rip_up_segment(rus.rip_up[i]);
 
 			// remove segment from rt
 			struct routed_segment_head *rsh = remove_rsh(rus.rip_up[i]);
+			rip_up_segment(&(rsh->rseg));
 			free(rsh);
 		}
 
@@ -695,6 +707,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 				continue;
 
 			fprintf(log, "[router] Rerouting net %d\n", net_to_reroute->net);
+			fflush(log);
 
 			recenter(cp, rt, 2);
 			maze_reroute(cp, rt, net_to_reroute, 2);
