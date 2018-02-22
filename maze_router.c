@@ -405,6 +405,20 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	if (rg->bt[usage_idx(m, c)] == BT_START && is_vertical(bt))
 		return 0;
 
+	// if this is a vertical movement, make sure its origin and the
+	// origin's backtrace are the same (for proper signal pointing)
+	enum backtrace my_bt = rg->bt[usage_idx(m, c)];
+	enum backtrace b4_bt = rg->bt[usage_idx(m, disp_backtrace(c, my_bt))]; // ha ha, "before"
+	if (is_vertical(bt) && my_bt != b4_bt)
+		return 0;
+
+	// if the coordinate (c) that led to the exploration of this coordinate
+	// (cc) was itself explored by a vertical movement, make sure that this
+	// movement (for c->cc) is the same as the one for the vertical
+	// movement to this one
+	if (is_vertical(b4_bt) && bt != my_bt)
+		return 0;
+
 	int movement_cost = is_vertical(bt) ? 10 : c.y == 3 ? 3 : 1;
 
 	int violation = usage_matrix_violated(m, cc);
