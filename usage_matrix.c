@@ -36,9 +36,10 @@ struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct rout
 	// size the usage matrix and allow for routing on y=0 and y=3
 	struct dimensions d = dimensions_piecewise_max(compute_placement_dimensions(cp), compute_routings_dimensions(rt));
 	assert(d.x > 0 && d.x < 1000 && d.z > 0 && d.z < 1000);
-	d.y = max(d.y, 4);
+	d.y = max(d.y, 7);
 	d.z += xz_margin;
 	d.x += xz_margin;
+	// printf("[usage_matrix] size is %dx%dx%d\n", d.y, d.z, d.x);
 
 	struct usage_matrix *m = malloc(sizeof(struct usage_matrix));
 	m->d = d;

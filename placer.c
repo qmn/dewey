@@ -558,7 +558,7 @@ static int score(struct cell_placements *placements, struct dimensions boundary)
 	int bounds = compute_out_of_bounds_penalty(placements, boundary);
 	int design_size = compute_design_size_penalty(placements);
 	int squareness = compute_squareness_penalty(placements);
-	int spread = 0; // compute_spread_penalty(placements);
+	int spread = compute_spread_penalty(placements);
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] score overlap: %d, wire_length: %d, out_of_bounds: %d, design_size: %d, spread: %d\n", overlap, wire_length, bounds, design_size, spread);
 #endif

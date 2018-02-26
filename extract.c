@@ -84,8 +84,16 @@ void place_block(struct extraction *e, struct coordinate c)
 
 	e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
 
-	if (c.y == 3)
+	switch (c.y) {
+	case 3:
 		e->blocks[(c.y - 1) * d.z * d.x + c.z * d.x + c.x] = 5;
+		break;
+	case 6:
+		e->blocks[(c.y - 1) * d.z * d.x + c.z * d.x + c.x] = 3;
+		break;
+	default:
+		break;
+	}
 }
 
 struct extraction *extract(struct cell_placements *cp, struct routings *rt)

@@ -11,12 +11,13 @@
 #include "router.h"
 #include "vis_png.h"
 
+// block id, col, row
 static struct texture_0_coord {
 	int id;
 	int x;
 	int y;
 } texture_0_coords[] = {
-	{1, 20, 9},
+	{1, 20, 9},    // stone
 	{55, 18, 13},
 	{76, 19, 2},
 	{75, 19, 3},
@@ -27,7 +28,8 @@ static struct texture_0_coord {
 	{152, 18, 10},
 	{5, 16, 4},
 	{69, 10, 13},
-	{123, 18, 15}
+	{123, 18, 15},
+	{3, 8, 6}       // dirt
 };
 
 static gdImagePtr redstone_mask(gdImagePtr textures_0)
