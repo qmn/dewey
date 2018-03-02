@@ -23,6 +23,32 @@ void usage_mark(struct usage_matrix *m, struct coordinate c)
 	m->matrix[usage_idx(m, c)]++;
 }
 
+static int is_toplevel_pin(struct placement *p)
+{
+	if (strncmp("input_pin", p->cell->name, 10) == 0 ||
+	    strncmp("output_pin", p->cell->name, 11) == 0)
+		return 1;
+	return 0;
+}
+
+// marks a usage matrix so that no routing will occur on Y=0 to the margin
+static void tunnel_to_margin(struct placement *p, struct usage_matrix *m)
+{
+	int sx = 0, ex = 0;
+	int sz = p->placement.z - 1, ez = p->placement.z + 1;
+	if (p->constraints & CONSTR_KEEP_LEFT) {
+		sx = 0;
+		ex = p->placement.x;
+	} else if (p->constraints & CONSTR_KEEP_RIGHT) {
+		sx = p->placement.x;
+		ex = m->d.x;
+	}
+
+	for (int x = sx; x < ex; x++)
+		for (int z = sz; z < ez; z++)
+			usage_mark(m, (struct coordinate){0, z, x});
+}
+
 /* create a usage_matrix that marks where blocks from existing cell placements
    and routed nets occupy the grid. */
 struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct routings *rt, int xz_margin)
@@ -69,7 +95,12 @@ struct usage_matrix *create_usage_matrix(struct cell_placements *cp, struct rout
 				}
 			}
 		}
+
+		// tunnel to margin
+		if (is_toplevel_pin(&p))
+			tunnel_to_margin(&p, m);
 	}
+
 
 	/* routings */
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
