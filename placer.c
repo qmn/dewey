@@ -13,8 +13,8 @@
 #include "segment.h"
 #include "util.h"
 
-#define MIN_MARGIN 4
-#define EDGE_MARGIN 4
+#define MIN_MARGIN 5
+#define EDGE_MARGIN 5
 
 #define MIN_WINDOW_WIDTH 4
 #define MIN_WINDOW_HEIGHT 4

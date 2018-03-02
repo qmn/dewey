@@ -11,6 +11,7 @@
 // west: x-1, east: x+1, north: z-1, south: z+1
 enum backtrace {BT_NONE, BT_WEST, BT_SOUTH, BT_EAST, BT_NORTH, BT_DOWN, BT_UP, BT_START};
 #define is_vertical(bt) (bt == BT_UP || bt == BT_DOWN)
+#define is_cardinal(bt) (bt == BT_WEST || bt == BT_SOUTH || bt == BT_EAST || bt == BT_NORTH)
 
 struct cost_coord {
 	unsigned int cost;

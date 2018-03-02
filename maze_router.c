@@ -418,10 +418,13 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 
 	int movement_cost = is_vertical(bt) ? 10 : c.y > 0 ? c.y/2 : 1;
 
+	// dissuade turns
+	int turn_cost = is_cardinal(bt) && is_cardinal(my_bt) && bt != my_bt ? 3 : 0;
+
 	if (usage_matrix_violated(m, cc))
 		violation++;
 
-	int violation_cost = 1000 + movement_cost;
+	int violation_cost = 1000 + movement_cost + turn_cost;
 
 	unsigned int cost_delta = violation ? violation_cost : movement_cost;
 	unsigned int new_cost = rg->cost[usage_idx(m, c)] + cost_delta;
