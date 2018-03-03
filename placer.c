@@ -13,11 +13,14 @@
 #include "segment.h"
 #include "util.h"
 
-#define MIN_MARGIN 5
-#define EDGE_MARGIN 5
+#define MIN_MARGIN 2
+#define EDGE_MARGIN 2
 
-#define MIN_WINDOW_WIDTH 4
-#define MIN_WINDOW_HEIGHT 4
+#define MIN_WINDOW_WIDTH 3
+#define MIN_WINDOW_HEIGHT 3
+
+#define MAX_WINDOW_WIDTH 20
+#define MAX_WINDOW_HEIGHT 20
 
 #define DISPLACE_INTERCHANGE_RATIO 5.0
 
@@ -129,8 +132,8 @@ static enum placement_method generate(struct cell_placements *placements,
 	scaling_factor = log(t) / log(t_0);
 
 	/* figure the most this placement can move */
-	window_height = max(lround(dimensions.z * scaling_factor), MIN_WINDOW_HEIGHT);
-	window_width = max(lround(dimensions.x * scaling_factor), MIN_WINDOW_WIDTH);
+	window_height = min(max(lround(dimensions.z * scaling_factor), MIN_WINDOW_HEIGHT), MAX_WINDOW_HEIGHT);
+	window_width = min(max(lround(dimensions.x * scaling_factor), MIN_WINDOW_WIDTH), MAX_WINDOW_WIDTH);
 
 	// window_height = max(window_height, MIN_WINDOW_HEIGHT);
 	// window_width = max(window_width, MIN_WINDOW_WIDTH);
@@ -140,7 +143,7 @@ static enum placement_method generate(struct cell_placements *placements,
 	// printf("[generate] p=%2.3f t=%2.3f\n", p, interchange_threshold);
 	if (p > interchange_threshold) {
 		/* select another cell_a if we can't interchange this one */
-		while (cell_a->constraints & CONSTR_MASK_NO_INTERCHANGE) {
+		while (cell_a->constraints) {
 			cell_a_idx = (unsigned long)random() % placements->n_placements;
 			cell_a = &(placements->placements[cell_a_idx]);
 		}
@@ -150,7 +153,7 @@ static enum placement_method generate(struct cell_placements *placements,
 		do {
 			cell_b_idx = (unsigned long)random() % placements->n_placements;
 			cell_b = &(placements->placements[cell_b_idx]);
-		} while (cell_b_idx == cell_a_idx || cell_b->constraints & CONSTR_MASK_NO_INTERCHANGE);
+		} while (cell_b_idx == cell_a_idx || cell_b->constraints & cell_a->constraints);
 
 		// attempt an interchange only if a window would fit both cells
 		struct coordinate center_a = cell_a->placement, center_b = cell_b->placement;
@@ -538,6 +541,96 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 	return penalty;
 }
 
+static void mark_congestion(int *cm, struct dimensions d, struct coordinate o, struct coordinate a, struct coordinate b)
+{
+	a.x -= o.x; a.z -= o.z;
+	b.x -= o.x, b.z -= o.z;
+
+	while (a.x != b.x || a.z != b.z) {
+		if (a.z >= 0 && a.z < d.z && a.x >= 0 && a.x < d.x) {
+			cm[a.z * d.x + a.x] += 2;
+
+			if (a.x != b.x) {
+				cm[max(a.z-1, 0) * d.x + a.x]++;
+				cm[min(a.z+1, d.z-1) * d.x + a.x]++;
+			}
+
+			if (a.z != b.z) {
+				cm[a.z * d.x + max(a.x-1,0)]++;
+				cm[a.z * d.x + min(a.x+1,d.x-1)]++;
+			}
+		}
+
+		if (a.x > b.x)
+			a.x--;
+		else if (a.x < b.x)
+			a.x++;
+		else if (a.z > b.z)
+			a.z--;
+		else if (a.z < b.z)
+			a.z++;
+	}
+}
+
+// computes the congestion map of nets running across the design,
+// then computes the product the presence of cells
+static int compute_congestion_penalty(struct cell_placements *cp)
+{
+	struct dimensions d = compute_placement_dimensions(cp);
+	struct coordinate offset = placements_top_left_most_point(cp);
+	d.x -= offset.x; d.z -= offset.z;
+	int *congestion_matrix = malloc(sizeof(int) * d.x * d.z);
+
+	for (int i = 0; i < d.x * d.z; i++)
+		congestion_matrix[i] = 0;
+
+	/* map pins to nets */
+	struct pin_placements *pp = placer_place_pins(cp);
+	struct net_pin_map *npm = placer_create_net_pin_map(pp);
+	free_pin_placements(pp);
+
+	/* for each net, compute the constituent pin coordinates */
+	for (net_t i = 1; i < npm->n_nets; i++) {
+		int n_pins = npm->n_pins_for_net[i];
+		assert(n_pins >= 0);
+
+		if (n_pins == 0 || n_pins == 1)
+			continue;
+
+		if (n_pins == 2) {
+			mark_congestion(congestion_matrix, d, offset, npm->pins[i][0].coordinate, npm->pins[i][1].coordinate);
+		} else {
+			struct coordinate *coords = malloc(n_pins * sizeof(struct coordinate));
+			for (int j = 0; j < n_pins; j++)
+				coords[j] = extend_pin(&npm->pins[i][j]);
+
+			struct segments *mst = create_mst(coords, n_pins);
+			for (int seg = 0; seg < mst->n_segments; seg++) {
+				mark_congestion(congestion_matrix, d, offset, mst->segments[seg].start, mst->segments[seg].end);
+			}
+			free_segments(mst);
+			free(coords);
+		}
+	}
+	free_net_pin_map(npm);
+
+	// now compute congestion-presence product
+	int congestion = 0;
+
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct placement p = cp->placements[i];
+
+		struct coordinate c = p.placement;
+		struct dimensions pd = p.cell->dimensions[p.turns];
+
+		for (int z = c.z; z < c.z + pd.z; z++)
+			for (int x = c.x; x < c.x + pd.x; x++)
+				congestion += congestion_matrix[(z - offset.z) * d.x + (x - offset.x)];
+	}
+
+	return congestion;
+}
+
 static int distance_outside_boundary(struct coordinate c, struct dimensions b)
 {
 	int dz = 0, dx = 0;
@@ -593,9 +686,10 @@ static double score(struct cell_placements *placements, struct dimensions bounda
 	double design_size = (double)compute_design_size_penalty(placements);
 	double squareness = (double)compute_squareness_penalty(placements);
 	double spread = compute_spread_penalty(placements);
-	double final_score = (overlap.violations * overlap.violations) + overlap.score + wire_length + bounds + design_size + squareness + spread;
+	double congestion = compute_congestion_penalty(placements);
+	double final_score = (overlap.violations * overlap.violations) + overlap.score + wire_length + bounds + design_size + squareness + spread + pow(congestion, 2.);
 #ifdef PLACER_SCORE_DEBUG
-	printf("[placer] total = %4f => score overlap: %d, wire_length: %4f, out_of_bounds: %4f, design_size: %4f, spread: %4f\n", final_score, overlap.violations, wire_length, bounds, design_size, spread);
+	printf("[placer] total = %4f => score overlap: %d, wire_length: %4f, out_of_bounds: %4f, design_size: %4f, spread: %4f, congestion: %d\n", final_score, overlap.violations, wire_length, bounds, design_size, spread, congestion);
 #endif
 	return final_score;
 }
