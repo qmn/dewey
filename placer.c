@@ -609,17 +609,32 @@ static void mark_congestion(int *cm, struct dimensions d, struct coordinate o, s
 	}
 }
 
+static double congestion_overlap(struct cell_placements *cp, struct coordinate c1, struct coordinate c2)
+{
+	double congestion = 0.;
+
+	int dx = abs(c1.x - c2.x) + 1, dz = abs(c1.z - c2.z) + 1;
+	double congestion_factor = (double)(dx + dz) / (double)(dx * dz);
+	assert(congestion_factor > 0.);
+
+	for (int i = 0; i < cp->n_placements; i++) {
+		struct placement p = cp->placements[i];
+		struct coordinate c = p.placement;
+		struct dimensions pd = p.cell->dimensions[p.turns];
+
+		int overlap_x = overlap(c.x, c.x + pd.x, min(c1.x, c2.x), max(c1.x, c2.x));
+		int overlap_z = overlap(c.z, c.z + pd.z, min(c1.z, c2.z), max(c1.z, c2.z));
+		congestion += congestion_factor * overlap_x * overlap_z;
+	}
+
+	return congestion;
+}
+
 // computes the congestion map of nets running across the design,
 // then computes the product the presence of cells
-static int compute_congestion_penalty(struct cell_placements *cp)
+static double compute_congestion_penalty(struct cell_placements *cp)
 {
-	struct dimensions d = compute_placement_dimensions(cp);
-	struct coordinate offset = placements_top_left_most_point(cp);
-	d.x -= offset.x; d.z -= offset.z;
-	int *congestion_matrix = malloc(sizeof(int) * d.x * d.z);
-
-	for (int i = 0; i < d.x * d.z; i++)
-		congestion_matrix[i] = 0;
+	double congestion = 0.;
 
 	/* map pins to nets */
 	struct pin_placements *pp = placer_place_pins(cp);
@@ -635,7 +650,8 @@ static int compute_congestion_penalty(struct cell_placements *cp)
 			continue;
 
 		if (n_pins == 2) {
-			mark_congestion(congestion_matrix, d, offset, npm->pins[i][0].coordinate, npm->pins[i][1].coordinate);
+			struct coordinate c1 = npm->pins[i][0].coordinate, c2 = npm->pins[i][1].coordinate;
+			congestion += congestion_overlap(cp, c1, c2);
 		} else {
 			struct coordinate *coords = malloc(n_pins * sizeof(struct coordinate));
 			for (int j = 0; j < n_pins; j++)
@@ -643,27 +659,14 @@ static int compute_congestion_penalty(struct cell_placements *cp)
 
 			struct segments *mst = create_mst(coords, n_pins);
 			for (int seg = 0; seg < mst->n_segments; seg++) {
-				mark_congestion(congestion_matrix, d, offset, mst->segments[seg].start, mst->segments[seg].end);
+				struct coordinate c1 = mst->segments[seg].start, c2 = mst->segments[seg].end;
+				congestion += congestion_overlap(cp, c1, c2);
 			}
 			free_segments(mst);
 			free(coords);
 		}
 	}
 	free_net_pin_map(npm);
-
-	// now compute congestion-presence product
-	int congestion = 0;
-
-	for (int i = 0; i < cp->n_placements; i++) {
-		struct placement p = cp->placements[i];
-
-		struct coordinate c = p.placement;
-		struct dimensions pd = p.cell->dimensions[p.turns];
-
-		for (int z = c.z; z < c.z + pd.z; z++)
-			for (int x = c.x; x < c.x + pd.x; x++)
-				congestion += congestion_matrix[(z - offset.z) * d.x + (x - offset.x)];
-	}
 
 	return congestion;
 }
@@ -724,7 +727,7 @@ static double score(struct cell_placements *placements, struct dimensions bounda
 	double squareness = (double)compute_squareness_penalty(placements);
 	double spread = compute_spread_penalty(placements);
 	double congestion = compute_congestion_penalty(placements);
-	double final_score = overlap.score + wire_length + bounds + design_size + squareness + spread + pow(congestion, 1.5);
+	double final_score = overlap.score + wire_length + bounds + design_size + /* squareness + */ spread + pow(congestion, 2.);
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] total = %4f => score overlap: %d, wire_length: %4f, out_of_bounds: %4f, design_size: %4f, spread: %4f, congestion: %d\n", final_score, overlap.violations, wire_length, bounds, design_size, spread, congestion);
 #endif
