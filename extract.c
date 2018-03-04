@@ -72,10 +72,10 @@ void recenter(struct cell_placements *cp, struct routings *rt, int xz_margin)
 		routings_displace(rt, coordinate_neg(disp));
 }
 
-void place_block(struct extraction *e, struct coordinate c)
+void place_block(struct extraction *e, struct coordinate c, int xz_margin)
 {
-	c.z += 2;
-	c.x += 2;
+	c.z += xz_margin;
+	c.x += xz_margin;
 
 	struct dimensions d = e->dimensions;
 
@@ -108,9 +108,11 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 		rtd = compute_routings_dimensions(rt);
 	struct dimensions d = dimensions_piecewise_max(cpd, rtd);
 
+	int margin = 2;
+
 	// modify dimensions (we'll perform the displacement later)
-	d.z += -disp.z + 4;
-	d.x += -disp.x + 4;
+	d.z = d.z - disp.z + 2 * margin;
+	d.x = d.x - disp.x + 2 * margin;
 	printf("[extract] extraction dimensions: h=%d w=%d l=%d\n", d.y, d.z, d.x);
 
 	struct extraction *e = malloc(sizeof(struct extraction));
@@ -131,8 +133,9 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 		for (int y = 0; y < lcd.y; y++) {
 			for (int z = 0; z < lcd.z; z++) {
 				for (int x = 0; x < lcd.x; x++) {
-					int fd_off = (c.y - disp.y + 2 + y) * d.z * d.x + (c.z - disp.z + 2 + z) * d.x + (c.x - disp.x + 2 + x);
-					int b_off = y * lcd.z * lcd.x + z * lcd.x + x;
+					// index into extraction matrix
+					int fd_off = (c.y - disp.y + y) * d.z * d.x + (c.z - disp.z + margin + z) * d.x + (c.x - disp.x + margin + x);
+					int b_off = y * lcd.z * lcd.x + z * lcd.x + x; // block offset into logic cell
 
 					assert(fd_off >= 0 && fd_off <= size);
 					e->blocks[fd_off] = lc->blocks[p.turns][b_off];
@@ -150,14 +153,18 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
 			struct coordinate c = rsh->rseg.seg.end;
 			for (int k = 0; k < rsh->rseg.n_backtraces; k++) {
+				// if it's vertical, place a block at its current position too
+				if (is_vertical(rsh->rseg.bt[k]))
+					place_block(e, coordinate_sub(c, disp), margin);
+
 				c = disp_backtrace(c, rsh->rseg.bt[k]);
 				struct coordinate cc = coordinate_sub(c, disp);
 
-				place_block(e, cc);
+				place_block(e, cc, margin);
 			}
 
-			place_block(e, coordinate_sub(rsh->rseg.seg.start, disp));
-			place_block(e, coordinate_sub(rsh->rseg.seg.end, disp));
+			place_block(e, coordinate_sub(rsh->rseg.seg.start, disp), margin);
+			place_block(e, coordinate_sub(rsh->rseg.seg.end, disp), margin);
 		}
 	}
 
