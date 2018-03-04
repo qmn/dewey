@@ -509,7 +509,7 @@ void rip_up_rsh(struct routed_segment_head *next)
 	while (next) {
 		curr = next;
 		next = next->next;
-		rip_up_segment(&next->rseg);
+		rip_up_segment(&curr->rseg);
 		free(curr);
 	}
 }
@@ -669,13 +669,13 @@ static void optimize_routings(struct cell_placements *cp, struct routings *rt, F
 			// if we had more than zero violations and we reduce the violation count, accept it no matter what;
 			// if we had zero violations and we reduce the score, then accept it
 			// do not introduce violations or score increases
-			if (new_violations < violations || (!violations && new_score < old_score)) {
-				// rip_up_rsh(old_rsh); // SHHH
+			if (new_violations < violations || (new_violations == violations && new_score < old_score)) {
+				rip_up_rsh(old_rsh); // SHHH
 				old_score = new_score;
 				violations = new_violations;
 				had_change++;
 			} else {
-				// rip_up_rsh(rn->routed_segments); // SHHH
+				rip_up_rsh(rn->routed_segments); // SHHH
 				rn->routed_segments = old_rsh;
 				// restore old parents
 				for (int i = 0; i < rn->n_pins; i++)
