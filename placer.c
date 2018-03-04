@@ -5,6 +5,7 @@
 #include <assert.h>
 #include <signal.h>
 #include <float.h>
+#include <limits.h>
 
 #include "blif.h"
 #include "coord.h"
@@ -30,6 +31,38 @@ enum placement_method {
 	REORIENT,
 	INTERCHANGE
 };
+
+// move all placements subject to the following constraints:
+// 1) placements marked KEEP_LEFT are set to zero,
+// 2) placements not marked KEEP_LEFT are moved as far north,
+//    west as possible
+static void recenter_unconstrained_placements(struct cell_placements *cp, struct coordinate offset)
+{
+	int i;
+	struct coordinate disp = {INT_MAX, INT_MAX, INT_MAX};
+	struct placement *p;
+
+	for (i = 0; i < cp->n_placements; i++) {
+		p = &cp->placements[i];
+		if (p->constraints & CONSTR_KEEP_LEFT) {
+			p->placement.x = 0;
+		} else {
+			disp = coordinate_piecewise_min(disp, p->placement);
+		}
+	}
+
+	assert(disp.x != INT_MAX && disp.y != INT_MAX && disp.z != INT_MAX);
+
+	disp = coordinate_sub(disp, offset);
+
+	for (i = 0; i < cp->n_placements; i++) {
+		p = &cp->placements[i];
+		if (p->constraints & CONSTR_KEEP_LEFT)
+			continue;
+
+		p->placement = coordinate_sub(p->placement, disp);
+	}
+}
 
 static struct dimensions compute_unconstrained_placement_dimensions(struct cell_placements *cp)
 {
@@ -174,8 +207,10 @@ static enum placement_method generate(struct cell_placements *placements,
 	} else if (method == DISPLACE) {
 
 		/* displace */
-		int dz = lround(box_muller(0, window_height));
-		int dx = lround(box_muller(0, window_width));
+		int dz = 0, dx = 0;
+		// don't waste time generating zero-displacements
+		while (!((dz = lround(box_muller(0, window_height))) || (dx = lround(box_muller(0, window_width)))));
+
 		// int dz = random() % (window_height * 2) - window_height;
 		// int dx = random() % (window_width * 2) - window_width;
 		// printf("[placer] displace %d by dz = %d, dx = %d\n", cell_a_idx, dz, dx);
@@ -369,7 +404,9 @@ static struct overlap_penalty compute_overlap_penalty_pairwise(struct cell_place
 			violations += ov.x * ov.y * ov.z;
 
 			ov = placement_overlaps(cs[i], cs[j], ds[i], ds[j], min(ms[i], ms[j]));
-			score += ov.x * ov.y * ov.z;
+			// score += pow(ov.x * ov.y * ov.z, 2.);
+			int overlap = ov.x * ov.y * ov.z;
+			score += overlap ? pow(ov.x * ov.y * ov.z, 2.) : 0;
 		}
 	}
 
@@ -687,7 +724,7 @@ static double score(struct cell_placements *placements, struct dimensions bounda
 	double squareness = (double)compute_squareness_penalty(placements);
 	double spread = compute_spread_penalty(placements);
 	double congestion = compute_congestion_penalty(placements);
-	double final_score = (overlap.violations * overlap.violations) + overlap.score + wire_length + bounds + design_size + squareness + spread + pow(congestion, 2.);
+	double final_score = overlap.score + wire_length + bounds + design_size + squareness + spread + pow(congestion, 1.5);
 #ifdef PLACER_SCORE_DEBUG
 	printf("[placer] total = %4f => score overlap: %d, wire_length: %4f, out_of_bounds: %4f, design_size: %4f, spread: %4f, congestion: %d\n", final_score, overlap.violations, wire_length, bounds, design_size, spread, congestion);
 #endif
@@ -788,7 +825,8 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 			if (method_used != NONE)
 				g++;
 			// printf("[placer] method was %d (NONE, DISPLACE, REORIENT, INTERCHANGE)\n", method_used);
-			recenter(new_placements, NULL, 0);
+			recenter_unconstrained_placements(new_placements, (struct coordinate){0, 0, 4});
+			// recenter(new_placements, NULL, 0);
 #ifdef PLACER_GENERATION_DEBUG
 			printf("[placer] generated a new\n");
 #endif
