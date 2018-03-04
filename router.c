@@ -503,16 +503,15 @@ void rip_up_segment(struct routed_segment *rseg)
 	rseg->score = 0;
 }
 
-void rip_up_net(struct routed_net *rn)
+void rip_up_rsh(struct routed_segment_head *next)
 {
-	struct routed_segment_head *next = rn->routed_segments, *curr;
+	struct routed_segment_head *curr;
 	while (next) {
 		curr = next;
 		next = next->next;
-		rip_up_segment(&curr->rseg);
+		rip_up_segment(&next->rseg);
 		free(curr);
 	}
-	rn->routed_segments = NULL;
 }
 
 // to sort in descending order, reverse the subtraction
@@ -621,35 +620,89 @@ int score_routings(struct routings *rt)
 	return total;
 }
 
-// in one round of optimization, rip up each net once in random order and
-// re-route it. returns violations seen
-int optimize_routings(struct cell_placements *cp, struct routings *rt, FILE *log)
+// perform all rounds of optimizations. it cannot introduce new violations
+// if we started with violations, make sure those go to zero (although
+// with this, it may or may not happen)
+// if we start with zero violations, make sure introducing new violations
+// are not permitted
+static void optimize_routings(struct cell_placements *cp, struct routings *rt, FILE *log)
 {
 	char *rerouted = calloc(rt->n_routed_nets + 1, sizeof(char));
 	int n_rerouted = 0;
-	int violations = 0;
 	
-	while (n_rerouted < rt->n_routed_nets) {
-		net_t i = random() % (rt->n_routed_nets + 1);
-		if (rerouted[i])
-			continue;
+	int iterations = 0;
+	interrupt_routing = 0;
+	signal(SIGINT, router_sigint_handler);
+	int old_score = score_routings(rt);
+	int had_change;
+	int violations = count_routings_violations(cp, rt, log);
+	do {
+		had_change = 0;
+		// clear out rerouted
+		for (net_t i = 1; i < rt->n_routed_nets + 1; i++)
+			rerouted[i] = 0;
 
-		rip_up_net(&rt->routed_nets[i]);
+		// try rerouting all nets, randomly
+		n_rerouted = 0;
+		while (n_rerouted < rt->n_routed_nets && !interrupt_routing) {
+			net_t i = (random() % rt->n_routed_nets) + 1;
+			if (rerouted[i])
+				continue;
 
-		recenter(cp, rt, 2);
-		maze_reroute(cp, rt, &rt->routed_nets[i], 2);
-		assert_in_bounds(&rt->routed_nets[i]);
+			struct routed_net *rn = &rt->routed_nets[i];
+			struct routed_segment **old_parents = malloc(rn->n_pins * sizeof(struct routed_segment *));
+			for (int i = 0; i < rn->n_pins; i++) {
+				old_parents[i] = rn->pins[i].parent;
+				rn->pins[i].parent = NULL;
+			}
 
-		violations += count_routings_violations(cp, rt, log);
-		// printf("[optimizing] net %d: %d violations (should be none)\n", i, violations);
-		// assert(violations == 0);
+			recenter(cp, rt, 2);
+			struct routed_segment_head *old_rsh = rn->routed_segments;
+			rn->routed_segments = NULL;
 
-		rerouted[i]++;
-		n_rerouted++;
-	}
+			maze_reroute(cp, rt, rn, 2);
+			assert_in_bounds(rn);
+
+			int new_violations = count_routings_violations(cp, rt, log);
+			int new_score = score_routings(rt);
+
+			// if we had more than zero violations and we reduce the violation count, accept it no matter what;
+			// if we had zero violations and we reduce the score, then accept it
+			// do not introduce violations or score increases
+			if (new_violations < violations || (!violations && new_score < old_score)) {
+				// rip_up_rsh(old_rsh); // SHHH
+				old_score = new_score;
+				violations = new_violations;
+				had_change++;
+			} else {
+				// rip_up_rsh(rn->routed_segments); // SHHH
+				rn->routed_segments = old_rsh;
+				// restore old parents
+				for (int i = 0; i < rn->n_pins; i++)
+					rn->pins[i].parent = old_parents[i];
+			}
+
+			// printf("[optimizing] net %d: %d violations (should be none)\n", i, violations);
+			// assert(violations == 0);
+
+			free(old_parents);
+
+			rerouted[i]++;
+			n_rerouted++;
+		}
+
+		printf("\r[optimize] Iterations: %4d, Score: %d, Changed nets: %d, Violations: %d",
+		       iterations + 1, old_score, had_change, violations);
+		fprintf(log, "\n[optimize] Iterations: %4d, Score: %d, Changed nets: %d, Violations: %d\n",
+		             iterations + 1, old_score, had_change, violations);
+		fflush(stdout);
+		fflush(log);
+
+		iterations++;
+	} while ((violations > 0 || had_change) && !interrupt_routing);
+	signal(SIGINT, SIG_DFL);
 
 	free(rerouted);
-	return violations;
 }
 
 /* main route subroutine */
@@ -743,27 +796,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	printf("\n[router] Solution found! Optimizing...\n");
 	fprintf(log, "\n[router] Solution found! Optimizing...\n");
 
-	iterations = 0;
-	interrupt_routing = 0;
-	signal(SIGINT, router_sigint_handler);
-	int prev = routings_score;
-	do {
-		if (routings_score < prev)
-			prev = routings_score;
-
-		violations = optimize_routings(cp, rt, log);
-		routings_score = score_routings(rt);
-
-		printf("\r[optimizing] Iterations: %4d, Score: %d, Violations: %d",
-		       iterations + 1, routings_score, violations);
-		fprintf(log, "\n[optimizing] Iterations: %4d, Score: %d, Violations: %d\n",
-		             iterations + 1, routings_score, violations);
-		fflush(stdout);
-		fflush(log);
-
-		iterations++;
-	} while ((routings_score < prev || violations > 0) && !interrupt_routing);
-	signal(SIGINT, SIG_DFL);
+	optimize_routings(cp, rt, log);
 
 	printf("[router] Routing complete!\n");
 	// print_routings(rt);
