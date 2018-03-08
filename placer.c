@@ -867,12 +867,12 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 			// alternate method for generation
 			switch (method_used) {
 			case DISPLACE:
-				method_used = REORIENT;
+				method = REORIENT;
 				break;
 			case REORIENT:
 				// fallthrough
 			default:
-				method_used = DISPLACE;
+				method = DISPLACE;
 				break;
 			}
 
