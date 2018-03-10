@@ -45,16 +45,18 @@ struct logic_cell {
 	data_t_p data[4];
 
 	int delay_combinational;
+	struct cell_library *lib;
 };
 
 struct cell_library {
 	char *name;
+	char *fn;
 
 	unsigned int n_cells;
 	struct logic_cell *cells;
 };
 
-struct cell_library *read_cell_library(FILE *);
+struct cell_library *read_cell_library(FILE *, char *);
 
 void free_cell_library(struct cell_library *);
 #endif /* __CELL_H__ */

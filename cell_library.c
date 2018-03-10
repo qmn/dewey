@@ -665,6 +665,7 @@ static unsigned int read_mapped_cells(yaml_parser_t *parser, struct cell_library
 				current.dimensions[0].z = 0;
 				current.blocks[0] = NULL;
 				current.data[0] = NULL;
+				current.lib = cl;
 				printf("[cell_library] reading in library cell \"%s\"\n", current.name);
 				break;
 
@@ -735,7 +736,7 @@ error:
 	return 0;
 }
 
-struct cell_library *read_cell_library(FILE *f)
+struct cell_library *read_cell_library(FILE *f, char *fn)
 {
 	yaml_parser_t parser;
 	yaml_event_t event;
@@ -743,6 +744,7 @@ struct cell_library *read_cell_library(FILE *f)
 	int done = 0;
 
 	struct cell_library *cl = malloc(sizeof(struct cell_library));
+	cl->fn = strdup(fn);
 
 	yaml_parser_initialize(&parser);
 	yaml_parser_set_input_file(&parser, f);

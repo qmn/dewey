@@ -12,6 +12,7 @@
 #include "placer.h"
 #include "router.h"
 #include "vis_png.h"
+#include "serializer.h"
 
 void usage(char *argv0)
 {
@@ -108,14 +109,15 @@ int main(int argc, char **argv)
 	FILE *cell_library_file;
 	struct cell_library *cl;
 
-	cell_library_file = fopen("quan.yaml", "rb");
+	char *cl_fn = "quan.yaml";
+	cell_library_file = fopen(cl_fn, "rb");
 
 	if (!cell_library_file) {
 		printf("[dewey] could not read cell library file: %s\n", strerror(errno));
 		return 3;
 	}
 
-	cl = read_cell_library(cell_library_file);
+	cl = read_cell_library(cell_library_file, cl_fn);
 	fclose(cell_library_file);
 
 	printf("[dewey] seeding random generator to %d\n", seed);
@@ -133,6 +135,8 @@ int main(int argc, char **argv)
 	new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 100, 100, 100);
 	// struct cell_placements *new_placements = initial_placement;
 	// print_cell_placements(new_placements);
+
+	serialize_placements(stdout, new_placements, blif);
 
 	struct dimensions placement_dimensions = compute_placement_dimensions(new_placements);
 	printf("[dewey] placement dimensions: {x: %d, y: %d, z: %d}\n",
@@ -154,6 +158,8 @@ int main(int argc, char **argv)
 */
 
 	struct routings *routings = route(blif, new_placements);
+
+	serialize_routings(stdout, routings, blif);
 
 	vis_png_draw_placements(output_dir, blif, new_placements, routings);
 
