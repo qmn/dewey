@@ -406,26 +406,42 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	// origin's backtrace are the same (for proper signal pointing)
 	enum backtrace my_bt = rg->bt[usage_idx(m, c)];
 	enum backtrace b4_bt = rg->bt[usage_idx(m, disp_backtrace(c, my_bt))]; // ha ha, "before"
-	if (is_vertical(bt) && is_cardinal(my_bt) && is_cardinal(b4_bt) && my_bt != b4_bt)
+	if (is_vertical(bt) && is_cardinal(my_bt) && my_bt != b4_bt)
 		violation++;
 
 	// if the coordinate (c) that led to the exploration of this coordinate
 	// (cc) was itself explored by a vertical movement, make sure that this
 	// movement (for c->cc) is the same as the one for the vertical
 	// movement to this one
-	if (is_vertical(b4_bt) && is_cardinal(my_bt) && is_cardinal(bt) && bt != my_bt)
+	if (is_vertical(b4_bt) && is_cardinal(my_bt) && bt != my_bt)
 		violation++;
 
+	// if we are adjacent to a via we did not just come from, it is a violation
+	if (is_cardinal(bt)) {
+		struct coordinate via_checks[4] = {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+		for (int i = 0; i < 4; i++) {
+			struct coordinate ccc = coordinate_add(cc, via_checks[i]);
+			if (in_usage_bounds(m, ccc) && is_vertical(rg->bt[usage_idx(m, ccc)]) && !coordinate_equal(ccc, c))
+				violation++;
+		}
+	}
+
 	// dissuade turns
-	int turn_cost = (is_cardinal(bt) && is_cardinal(my_bt) && bt != my_bt) ? 3 : 0;
-	int via_cost = is_vertical(bt) ? 10 : 0;
+	int turn_cost = (is_cardinal(bt) && is_cardinal(my_bt) && bt != my_bt) ? 5 : 0;
+	int via_cost = is_vertical(bt) ? 20 : 0;
 	int y_cost = c.y / 2;
 
 	// dissuade going too close to bounds
 	int edge_margin = 2;
-	int edge_cost = (cc.x < edge_margin || cc.x > m->d.x - edge_margin || cc.z < edge_margin || cc.z > m->d.z - edge_margin) ? 2 : 0;
+	int edge_cost = (cc.x < edge_margin || cc.x > m->d.x - edge_margin || cc.z < edge_margin || cc.z > m->d.z - edge_margin) ? 4 : 0;
 
-	int movement_cost = turn_cost + via_cost + y_cost + edge_cost;
+	int preferred_direction_cost = 0;
+	if ((cc.y == 0 || cc.y == 6) && (bt == BT_NORTH || bt == BT_SOUTH))
+		preferred_direction_cost = 10;
+	else if (cc.y == 3 && (bt == BT_WEST || bt == BT_EAST))
+		preferred_direction_cost = 10;
+
+	int movement_cost = 1 + turn_cost + via_cost + y_cost + edge_cost + preferred_direction_cost;
 
 	if (usage_matrix_violated(m, cc))
 		violation++;
