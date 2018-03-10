@@ -36,7 +36,7 @@ static struct routed_segment cityblock_route(struct segment seg)
 
 	assert(count == len);
 
-	struct routed_segment rseg = {seg, len, path, 0, NULL, NULL, 0, NULL, 0, NULL};
+	struct routed_segment rseg = {seg, len, path, 0, NULL, NULL, 0, NULL, 0, NULL, 0};
 	return rseg;
 }
 
@@ -189,7 +189,7 @@ void dumb_route(struct routed_net *rn, struct blif *blif, struct net_pin_map *np
 		child_pins[0] = &npm->pins[net][0];
 
 		struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
-		rsh->rseg = (struct routed_segment){seg, 1, path, 0, rn, NULL, 0, NULL, 1, child_pins};
+		rsh->rseg = (struct routed_segment){seg, 1, path, 0, rn, NULL, 0, NULL, 1, child_pins, 0};
 		rsh->next = NULL;
 		child_pins[0]->parent = &rsh->rseg;
 		
@@ -206,6 +206,7 @@ void dumb_route(struct routed_net *rn, struct blif *blif, struct net_pin_map *np
 		rsh->rseg.net = rn;
 		rsh->rseg.n_child_pins = 2;
 		rsh->rseg.child_pins = child_pins;
+		rsh->rseg.extracted = 0;
 		child_pins[0]->parent = &rsh->rseg;
 		child_pins[1]->parent = &rsh->rseg;
 		rsh->next = NULL;

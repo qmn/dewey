@@ -194,30 +194,6 @@ static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
 // TODO: implement this again
 #define ROUTER_PREFER_CONTINUE_IN_DIRECTION 0
 
-// not only reverse the backtrace order but also invert the backtrace direction
-// example: moving north, north, west, end:
-// E<A
-//   A
-//   S
-// becomes: moving east, south, south, end:
-// S>V
-//   V
-//   E
-static void invert_backtrace_sequence(enum backtrace *bt, int n_bt)
-{
-	int i;
-	enum backtrace tmp;
-
-	for (i = 0; i < n_bt / 2; i++) {
-		tmp = bt[i];
-		bt[i] = bt[n_bt - 1 - i];
-		bt[n_bt - i - 1] = tmp;
-	}
-
-	for (i = 0; i < n_bt; i++)
-		bt[i] = invert_backtrace(bt[i]);
-}
-
 #define INITIAL_BT_SIZE 4
 
 static int append_backtrace(enum backtrace ent, struct routed_segment *rseg, int bt_size)
@@ -241,7 +217,7 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 		enum backtrace *a_bt, enum backtrace *b_bt)
 {
 	int bt_size = INITIAL_BT_SIZE;
-	struct routed_segment rseg = {{{0, 0, 0}, {0, 0, 0}}, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL};
+	struct routed_segment rseg = {{{0, 0, 0}, {0, 0, 0}}, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL, 0};
 	rseg.bt = calloc(bt_size, sizeof(enum backtrace));
 
 	enum backtrace b_to_a = compute_backtrace(b, a);

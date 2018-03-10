@@ -42,6 +42,30 @@ enum backtrace invert_backtrace(enum backtrace b)
 	}
 }
 
+// not only reverse the backtrace order but also invert the backtrace direction
+// example: moving north, north, west, end:
+// E<A
+//   A
+//   S
+// becomes: moving east, south, south, end:
+// S>V
+//   V
+//   E
+void invert_backtrace_sequence(enum backtrace *bt, int n_bt)
+{
+	int i;
+	enum backtrace tmp;
+
+	for (i = 0; i < n_bt / 2; i++) {
+		tmp = bt[i];
+		bt[i] = bt[n_bt - 1 - i];
+		bt[n_bt - i - 1] = tmp;
+	}
+
+	for (i = 0; i < n_bt; i++)
+		bt[i] = invert_backtrace(bt[i]);
+}
+
 // figure out to get from here to there
 enum backtrace compute_backtrace(struct coordinate here, struct coordinate there)
 {

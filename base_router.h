@@ -40,6 +40,8 @@ struct routed_segment {
 	struct routed_segment **child_segments;
 	int n_child_pins;
 	struct placed_pin **child_pins;
+
+	int extracted;
 };
 
 struct routed_segment_head {
@@ -61,5 +63,6 @@ struct routed_net {
 
 struct coordinate disp_backtrace(struct coordinate, enum backtrace);
 enum backtrace invert_backtrace(enum backtrace);
+void invert_backtrace_sequence(enum backtrace *, int);
 enum backtrace compute_backtrace(struct coordinate, struct coordinate);
 #endif /* __BASE_ROUTER_H__ */
