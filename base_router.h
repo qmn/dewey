@@ -9,9 +9,20 @@
 // but to avoid circular include chains (particularly of router.h)
 
 // west: x-1, east: x+1, north: z-1, south: z+1
-enum backtrace {BT_NONE, BT_WEST, BT_SOUTH, BT_EAST, BT_NORTH, BT_DOWN, BT_UP, BT_START};
-#define is_vertical(bt) (bt == BT_UP || bt == BT_DOWN)
-#define is_cardinal(bt) (bt == BT_WEST || bt == BT_SOUTH || bt == BT_EAST || bt == BT_NORTH)
+enum backtrace {
+	BT_NONE  = 0,
+	BT_WEST  = 1 << 0,
+	BT_SOUTH = 1 << 1,
+	BT_EAST  = 1 << 2,
+	BT_NORTH = 1 << 3,
+	BT_DOWN  = 1 << 4,
+	BT_UP    = 1 << 5,
+	BT_START = 1 << 6
+};
+#define BT_VERTICAL_MASK (BT_UP | BT_DOWN)
+#define BT_CARDINAL_MASK (BT_WEST | BT_SOUTH | BT_EAST | BT_NORTH)
+#define is_vertical(bt) (bt & BT_VERTICAL_MASK)
+#define is_cardinal(bt) (bt & BT_CARDINAL_MASK)
 
 struct cost_coord {
 	unsigned int cost;

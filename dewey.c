@@ -136,7 +136,9 @@ int main(int argc, char **argv)
 	// struct cell_placements *new_placements = initial_placement;
 	// print_cell_placements(new_placements);
 
-	serialize_placements(stdout, new_placements, blif);
+	FILE *pf = fopen("placements.yaml", "w");
+	serialize_placements(pf, new_placements, blif);
+	fclose(pf);
 
 	struct dimensions placement_dimensions = compute_placement_dimensions(new_placements);
 	printf("[dewey] placement dimensions: {x: %d, y: %d, z: %d}\n",
@@ -159,7 +161,9 @@ int main(int argc, char **argv)
 
 	struct routings *routings = route(blif, new_placements);
 
-	serialize_routings(stdout, routings, blif);
+	FILE *rf = fopen("routings.yaml", "w");
+	serialize_routings(rf, routings, blif);
+	fclose(rf);
 
 	vis_png_draw_placements(output_dir, blif, new_placements, routings);
 

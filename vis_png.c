@@ -29,6 +29,8 @@ static struct texture_0_coord {
 	{5, 16, 4},
 	{69, 10, 13},
 	{123, 18, 15},
+	{29, 11, 15}, // piston bottom
+	{165, 20, 4}, // slime
 	{3, 8, 6}       // dirt
 };
 

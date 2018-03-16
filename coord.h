@@ -1,6 +1,8 @@
 #ifndef __COORD_H__
 #define __COORD_H__
 
+#define PRINT_COORD(c) c.y, c.z, c.x
+
 struct coordinate {
 	int y;
 	int z;

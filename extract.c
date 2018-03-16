@@ -128,6 +128,9 @@ enum movement {
 	GO_FORBID_REPEAT = 1 << 7
 };
 
+#define MV_VERTICAL_MASK (GO_UP | GO_DOWN)
+#define MV_CARDINAL_MASK (GO_WEST | GO_SOUTH | GO_EAST | GO_NORTH)
+
 static enum movement backtrace_to_movement(enum backtrace bt)
 {
 	switch (bt) {
@@ -150,14 +153,30 @@ static enum movement backtrace_to_movement(enum backtrace bt)
 
 static int movement_cardinal(enum movement m)
 {
-	return (m & (BT_WEST | BT_SOUTH | BT_EAST | BT_NORTH));
+	return (m & MV_CARDINAL_MASK);
 }
 
 static int movement_vertical(enum movement m)
 {
-	return (m & (BT_UP | BT_DOWN));
+	return (m & MV_VERTICAL_MASK);
 }
 
+static data_t repeater_data(enum movement m)
+{
+	switch (m & MV_CARDINAL_MASK) {
+	case GO_EAST:
+		return 3;
+	case GO_NORTH:
+		return 2;
+	case GO_WEST:
+		return 1;
+	default:
+	case GO_SOUTH:
+		return 0;
+	}
+}
+
+#define AIR 0
 #define STONE 1
 #define REDSTONE_TORCH 76
 #define TORCH_UP 5
@@ -170,8 +189,22 @@ static int movement_vertical(enum movement m)
 #define REDSTONE_BLOCK 152
 #define SLIME 165
 
-static void place_movement(struct extracted_net *en, struct coordinate c, enum movement m)
+static block_t base_block(struct coordinate c)
 {
+	if (c.y < 2)
+		return STONE;
+	else if (c.y < 5)
+		return PLANKS;
+	else if (c.y < 8)
+		return DIRT;
+	else
+		return STONE;
+}
+
+static void place_movement(struct extracted_net *en, struct coordinate c, enum movement m, struct coordinate disp)
+{
+	c = coordinate_add(c, disp);
+
 	if (movement_cardinal(m)) {
 		struct coordinate b = {c.y - 1, c.z, c.x};
 		switch (c.y) {
@@ -186,28 +219,28 @@ static void place_movement(struct extracted_net *en, struct coordinate c, enum m
 		}
 
 		if (m & GO_REPEAT)
-			extracted_net_append(en, c, UNLIT_REDSTONE_REPEATER, 0);
+			extracted_net_append(en, c, UNLIT_REDSTONE_REPEATER, repeater_data(m));
 		else
 			extracted_net_append(en, c, REDSTONE_DUST, 0);
 
 	} else if (m & GO_UP) {
-		extracted_net_append(en, c, STONE, 0); c.y++;
-		extracted_net_append(en, c, REDSTONE_TORCH, TORCH_UP); c.y++;
-		extracted_net_append(en, c, STONE, 0); c.y++;
-		extracted_net_append(en, c, REDSTONE_TORCH, TORCH_UP);
+		extracted_net_append(en, c, REDSTONE_TORCH, TORCH_UP); c.y--; // 3
+		extracted_net_append(en, c, base_block(c), 0); c.y--; // 2
+		extracted_net_append(en, c, REDSTONE_TORCH, TORCH_UP); c.y--; // 1
+		extracted_net_append(en, c, base_block(c), 0); // 0
 
 	} else if (m & GO_DOWN) {
-		extracted_net_append(en, c, STICKY_PISTON, PISTON_DOWN); c.y--;
-		extracted_net_append(en, c, SLIME, 0); c.y--;
-		extracted_net_append(en, c, REDSTONE_BLOCK, 0); c.y--;
-		c.y--;
-		extracted_net_append(en, c, STONE, 0);
+		c.y--; // -1
+		extracted_net_append(en, c, base_block(c), 0); c.y++; // -1
+		extracted_net_append(en, c, AIR, 0); c.y++; // 0
+		extracted_net_append(en, c, REDSTONE_BLOCK, 0); c.y++; // 1
+		extracted_net_append(en, c, STICKY_PISTON, PISTON_DOWN); // 2
 	}
 }
 
 static struct coordinate movement_displace(struct coordinate c, enum movement m)
 {
-	switch (m) {
+	switch (m & (MV_CARDINAL_MASK | MV_VERTICAL_MASK)) {
 	case GO_WEST:
 		c.x--;
 		break;
@@ -218,7 +251,7 @@ static struct coordinate movement_displace(struct coordinate c, enum movement m)
 		c.x++;
 		break;
 	case GO_NORTH:
-		c.z++;
+		c.z--;
 		break;
 	case GO_DOWN:
 		c.y -= 3;
@@ -242,65 +275,80 @@ static int is_repeatable(enum movement *m, int i, int n)
 	return movement_cardinal(m[i]) && m[i] == m[i+1] && !(m[i] & GO_FORBID_REPEAT);
 }
 
-#define MAX_REDSTONE_STRENGTH 13
+#define MAX_REDSTONE_STRENGTH 15
 #define MIN_REDSTONE_STRENGTH 2
 // to a net that has the correct direction (that is, the source is seg.start
 // and the sink is seg.end), place repeaters -- we want to place a minimum
 // of repeaters, to reduce delay, but enough to propagate the signal
-static void add_repeaters(enum movement *m, int n, int strength)
+static void add_repeaters(enum movement *m, int* strengths, int n)
 {
-
 	if (n == 0)
 		return;
 
-	int i = 0;
-	while (i < n) {
+	for (int i = 1; i < n; i++) {
+		strengths[i] = strengths[i-1] - 1;
+
 		// vertical movements involve torches and redstone blocks,
 		// which reset the strength to 15
 		if (movement_vertical(m[i])) {
-			add_repeaters(&m[i+1], n-(i+1), MAX_REDSTONE_STRENGTH);
+			strengths[i] = 16;
+			add_repeaters(&m[i], &strengths[i], n-i);
 			return;
 		}
 
-		if (strength < MIN_REDSTONE_STRENGTH) {
+		if (strengths[i] < MIN_REDSTONE_STRENGTH) {
 			// begin moving backwards until we have a repeatable part
 			for (int j = i; j >= 0; j--) {
 				if (is_repeatable(m, j, n)) {
 					m[j] |= GO_REPEAT;
+					strengths[j] = 16;
 					// restart adding repeaters from this point at the maximum strength
-					add_repeaters(&m[j+1], n-(j+1), MAX_REDSTONE_STRENGTH);
+					add_repeaters(&m[j], &strengths[j], n-j);
 					return;
 				}
 			}
 
 			// for loop terminated, which means it couldn't find a repeatable part
 			printf("[extract] could not repeat this segment\n");
-			exit(1);
+			// exit(1);
 		}
-
-		strength--;
-		i++;
 	}
 }
 
 static int has_abutting_relative_segment(struct routed_segment *rseg, struct coordinate c)
 {
-	if (rseg->parent && (adjacent(rseg->parent->seg.start, c) || adjacent(rseg->parent->seg.end, c)))
+	if (rseg->parent && (coordinate_equal(rseg->parent->seg.start, c) || coordinate_equal(rseg->parent->seg.end, c)))
 		return 1;
 
 	for (int i = 0; i < rseg->n_child_segments; i++) {
-		if (adjacent(rseg->child_segments[i]->seg.start, c) || adjacent(rseg->child_segments[i]->seg.end, c))
+		if (coordinate_equal(rseg->child_segments[i]->seg.start, c) || coordinate_equal(rseg->child_segments[i]->seg.end, c))
 			return 1;
 	}
 
 	return 0;
 }
 
-static void extract_segment(struct extracted_net *en, struct routed_segment *rseg, int strength)
+static enum movement ordinal_to_movement(enum ordinal_direction od)
+{
+	switch (od) {
+		case NORTH: return GO_NORTH;
+		case EAST: return GO_EAST;
+		case SOUTH: return GO_SOUTH;
+		case WEST: return GO_WEST;
+		default: return GO_NONE;
+	}
+}
+
+static void extract_segment(struct extracted_net *en, struct routed_segment *rseg, int strength, struct coordinate disp)
 {
 	// create list of movements
 	int n_bt = rseg->n_backtraces;
+	if (n_bt == 0)
+		return;
+
 	enum movement *movts = malloc(sizeof(enum movement) * rseg->n_backtraces);
+	int *strengths = malloc(sizeof(int) * rseg->n_backtraces);
+	strengths[0] = strength;
 	struct coordinate c = rseg->seg.start;
 
 	// iterate through the movements, calculating the coordinates
@@ -313,41 +361,51 @@ static void extract_segment(struct extracted_net *en, struct routed_segment *rse
 			movts[i] |= GO_FORBID_REPEAT;
 	}
 
-	add_repeaters(movts, n_bt, strength);
+	add_repeaters(movts, strengths, n_bt);
 
 	rseg->extracted = 1;
 
-	c = rseg->seg.start;
-	place_movement(en, c, GO_NONE);
-	strength--;
-	for (int i = 0; i < n_bt; i++) {
-		c = movement_displace(c, movts[i]);
-		place_movement(en, c, movts[i]);
+	for (int i = -1; i <= n_bt; i++) {
+		if (i == -1)
+			c = rseg->seg.start;
+		else if (i == n_bt)
+			c = rseg->seg.end;
+		else
+			c = movement_displace(c, movts[i]);
 
-		if (movement_cardinal(movts[i]))
-			strength--;
-		else if (movement_vertical(movts[i]) || movts[i] & GO_REPEAT)
-			strength = MAX_REDSTONE_STRENGTH;
-		assert(strength > 0);
+		place_movement(en, c, movts[i], disp);
 
 		// for parent and child segments, extract them if they abut here
 		if (rseg->parent && !rseg->parent->extracted) {
 			struct segment seg = rseg->parent->seg;
-			if (adjacent(seg.start, c) || adjacent(seg.end, c))
-				extract_segment(en, rseg->parent, strength);
+			if (coordinate_equal(seg.end, c))
+				reverse_segment(rseg->parent);
+			if (coordinate_equal(seg.start, c))
+				extract_segment(en, rseg->parent, strength - 1, disp);
 		}
 
 		for (int i = 0; i < rseg->n_child_segments; i++) {
-			struct segment seg = rseg->child_segments[i]->seg;
-			if (adjacent(seg.start, c) || adjacent(seg.end, c))
-				extract_segment(en, rseg->parent, strength);
+			struct routed_segment *child = rseg->child_segments[i];
+			struct segment seg = child->seg;
+			if (child->extracted)
+				continue;
+
+			if (coordinate_equal(seg.end, c))
+				reverse_segment(child);
+			if (coordinate_equal(seg.start, c))
+				extract_segment(en, child, strength - 1, disp);
 		}
+	}
+
+	for (int i = 0; i < rseg->n_child_pins; i++) {
+		struct placed_pin *p = rseg->child_pins[i];
+		place_movement(en, extend_pin(p), ordinal_to_movement(p->cell_pin->facing), disp);
 	}
 
 	free(movts);
 }
 
-struct extracted_net *extract_net(struct routed_net *rn)
+struct extracted_net *extract_net(struct routed_net *rn, struct coordinate disp)
 {
 	struct extracted_net *en = malloc(sizeof(struct extracted_net));
 	en->net = rn->net;
@@ -357,54 +415,66 @@ struct extracted_net *extract_net(struct routed_net *rn)
 	en->b = malloc(sizeof(block_t) * en->sz);
 	en->d = malloc(sizeof(data_t) * en->sz);
 
-	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
-		rsh->rseg.extracted = 0;
-
 	// find the driving pin
 	struct routed_segment *ds = NULL;
 	struct placed_pin *dp = NULL;
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		rsh->rseg.extracted = 0;
+		for (int i = 0; i < rsh->rseg.n_child_pins; i++)
+			if (rsh->rseg.child_pins[i]->cell_pin->direction == OUTPUT) {
+				assert(!ds && !dp);
+				dp = rsh->rseg.child_pins[i];
+				ds = &rsh->rseg;
+			}
+	}
+
+	assert(dp && ds);
+
+/*
 	for (int i = 0; i < rn->n_pins; i++) {
 		if (rn->pins[i].cell_pin->direction == OUTPUT) {
 			// we can only have one driver
-			assert(!ds && !dp && rn->pins[i].parent);
+			assert(!ds && !dp);
+			assert(rn->pins[i].parent);
 			ds = rn->pins[i].parent;
 			dp = &rn->pins[i];
 		}
 	}
+*/
 
 	// now, find the part of the segment where
-	assert(adjacent(dp->coordinate, ds->seg.start) || adjacent(dp->coordinate, ds->seg.end));
-	if (adjacent(dp->coordinate, ds->seg.end))
+	struct coordinate dpc = extend_pin(dp);
+	assert(coordinate_equal(dpc, ds->seg.start) || coordinate_equal(dpc, ds->seg.end));
+	if (coordinate_equal(dpc, ds->seg.end))
 		reverse_segment(ds);
 
-	extract_segment(en, ds, dp->cell_pin->level);
+	extract_segment(en, ds, dp->cell_pin->level - 1, disp);
+
+	// ensure all segments extracted
+	int extracted = 0, total = 0;
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next, total++) {
+		if (rsh->rseg.extracted)
+			extracted++;
+
+		// assert(rsh->rseg.extracted);
+	}
+	printf("[extraction] %d/%d extracted\n", extracted, total);
 
 	return en;
 }
 
 // block placement routines
-void place_block(struct extraction *e, struct coordinate c, int xz_margin)
+void place_block(struct extraction *e, struct coordinate c, block_t b, data_t da)
 {
-	c.z += xz_margin;
-	c.x += xz_margin;
-
 	struct dimensions d = e->dimensions;
 
 	if (c.x > d.x || c.y > d.y || c.z > d.z || c.x < 0 || c.y < 0 || c.z < 0)
 		return;
 
-	e->blocks[c.y * d.z * d.x + c.z * d.x + c.x] = 55;
+	int offset = c.y * d.z * d.x + c.z * d.x + c.x;
 
-	switch (c.y) {
-	case 3:
-		e->blocks[(c.y - 1) * d.z * d.x + c.z * d.x + c.x] = 5;
-		break;
-	case 6:
-		e->blocks[(c.y - 1) * d.z * d.x + c.z * d.x + c.x] = 3;
-		break;
-	default:
-		break;
-	}
+	e->blocks[offset] = b;
+	e->data[offset] = da;
 }
 
 struct extraction *extract(struct cell_placements *cp, struct routings *rt)
@@ -460,23 +530,11 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 	if (!rt)
 		return e;
 
+	struct coordinate rt_disp = {-disp.y, -disp.z + margin, -disp.x + margin};
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		for (struct routed_segment_head *rsh = rt->routed_nets[i].routed_segments; rsh; rsh = rsh->next) {
-			struct coordinate c = rsh->rseg.seg.end;
-			for (int k = 0; k < rsh->rseg.n_backtraces; k++) {
-				// if it's vertical, place a block at its current position too
-				if (is_vertical(rsh->rseg.bt[k]))
-					place_block(e, coordinate_sub(c, disp), margin);
-
-				c = disp_backtrace(c, rsh->rseg.bt[k]);
-				struct coordinate cc = coordinate_sub(c, disp);
-
-				place_block(e, cc, margin);
-			}
-
-			place_block(e, coordinate_sub(rsh->rseg.seg.start, disp), margin);
-			place_block(e, coordinate_sub(rsh->rseg.seg.end, disp), margin);
-		}
+		struct extracted_net *en = extract_net(&rt->routed_nets[i], rt_disp);
+		for (int i = 0; i < en->n; i++)
+			place_block(e, en->c[i], en->b[i], en->d[i]);
 	}
 
 	return e;
