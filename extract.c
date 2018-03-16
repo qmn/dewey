@@ -365,14 +365,9 @@ static void extract_segment(struct extracted_net *en, struct routed_segment *rse
 
 	rseg->extracted = 1;
 
-	for (int i = -1; i <= n_bt; i++) {
-		if (i == -1)
-			c = rseg->seg.start;
-		else if (i == n_bt)
-			c = rseg->seg.end;
-		else
-			c = movement_displace(c, movts[i]);
-
+	c = rseg->seg.start;
+	for (int i = 0; i < n_bt; i++) {
+		c = movement_displace(c, movts[i]);
 		place_movement(en, c, movts[i], disp);
 
 		// for parent and child segments, extract them if they abut here
