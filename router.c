@@ -689,6 +689,19 @@ static void optimize_routings(struct cell_placements *cp, struct routings *rt, F
 	free(rerouted);
 }
 
+void print_rsa(struct routed_net *rn)
+{
+	int count = 0;
+	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next, count++) {
+		printf("[rsa] %d: segment {(%d, %d, %d) -> (%d, %d, %d)} adjacent to ", count, PRINT_COORD(rsa->parent->seg.start), PRINT_COORD(rsa->parent->seg.end));
+		if (rsa->child_type == SEGMENT) {
+			printf("segment {(%d, %d, %d) -> (%d, %d, %d)}\n", PRINT_COORD(rsa->child.rseg->seg.start), PRINT_COORD(rsa->child.rseg->seg.end));
+		} else if (rsa->child_type == PIN) {
+			printf("pin at (%d, %d, %d) (%c)\n", PRINT_COORD(extend_pin(rsa->child.pin)), rsa->child.pin->cell_pin->direction == OUTPUT ? 'o' : 'i');
+		}
+	}
+}
+
 /* main route subroutine */
 struct routings *route(struct blif *blif, struct cell_placements *cp)
 {
@@ -781,6 +794,11 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 	fprintf(log, "\n[router] Solution found! Optimizing...\n");
 
 	optimize_routings(cp, rt, log);
+
+	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
+		// printf("net %d (%s)\n", i, get_net_name(blif, i));
+		// print_rsa(&rt->routed_nets[i]);
+	}
 
 	printf("[router] Routing complete!\n");
 	// print_routings(rt);

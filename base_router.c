@@ -3,6 +3,8 @@
 #include <assert.h>
 #include <stdlib.h>
 
+#include "placer.h"
+
 struct coordinate disp_backtrace(struct coordinate c, enum backtrace b)
 {
 	switch (b) {

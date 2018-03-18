@@ -322,26 +322,23 @@ struct neighbors {
 	struct routed_segment **neighbors;
 };
 
-static struct neighbors find_neighbors(struct routed_net *rn, struct routed_segment *rseg)
+static struct neighbors find_neighbors(struct routed_net *rn, struct placed_pin *p, struct routed_segment *rseg)
 {
+	assert(!!p ^ !!rseg);
+
 	struct neighbors n = {0, NULL};
 
 	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next) {
 		// get ordinary segments as neighbors
-		if (rsa->parent == rseg && rsa->child_type == SEGMENT) {
+		if (rseg && rsa->parent == rseg && rsa->child_type == SEGMENT) {
 			n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
 			n.neighbors[n.n_neighbors-1] = rsa->child.rseg;
-		} else if (rsa->child_type == SEGMENT && rsa->child.rseg == rseg) {
+		} else if (rseg && rsa->child_type == SEGMENT && rsa->child.rseg == rseg) {
 			n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
 			n.neighbors[n.n_neighbors-1] = rsa->parent;
-		} else if (rsa->parent == rseg && rsa->child_type == PIN) {
-			// also, get segments that are connected through pins -- those are "adjacent" too
-			for (struct routed_segment_adjacency *rsb = rn->adjacencies; rsb; rsb = rsb->next) {
-				if (rsb->child_type == PIN && rsb->child.pin == rsa->child.pin && rsb->parent != rseg) {
-					n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
-					n.neighbors[n.n_neighbors-1] = rsb->parent;
-				}
-			}
+		} else if (p && rsa->child_type == PIN && rsa->child.pin == p) {
+			n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
+			n.neighbors[n.n_neighbors-1] = rsa->parent;
 		}
 	}
 
@@ -371,6 +368,117 @@ static enum movement ordinal_to_movement(enum ordinal_direction od)
 	}
 }
 
+static void print_extracted_net(struct routed_net *rn)
+{
+	struct coordinate dbr = {0, 0, 0}, dtl = {0, 0, 0};
+	struct routed_segment_head *rsh;
+
+	for (rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		struct routed_segment rseg = rsh->rseg;
+		struct coordinate c = rseg.seg.end;
+		for (int k = 0; k < rseg.n_backtraces; k++) {
+			c = disp_backtrace(c, rseg.bt[k]);
+			dbr = coordinate_piecewise_max(dbr, c);
+			dtl = coordinate_piecewise_min(dtl, c);
+		}
+
+		dbr = coordinate_piecewise_max(dbr, rseg.seg.start);
+		dbr = coordinate_piecewise_max(dbr, rseg.seg.end);
+		dtl = coordinate_piecewise_min(dtl, rseg.seg.start);
+		dtl = coordinate_piecewise_min(dtl, rseg.seg.end);
+	}
+
+	for (int i = 0; i < rn->n_pins; i++) {
+		struct coordinate c = extend_pin(&rn->pins[i]);
+		dbr = coordinate_piecewise_max(dbr, c);
+		dtl = coordinate_piecewise_min(dtl, c);
+	}
+
+	struct coordinate disp = coordinate_neg(dtl);
+	int w = dbr.x - dtl.x + 1;
+	int h = dbr.z - dtl.z + 1;
+
+	char *a = calloc(w * h, sizeof(char));
+
+	char curr = 'A';
+
+	for (rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		struct routed_segment rseg = rsh->rseg;
+		printf("segment %c: (%d, %d, %d) -> (%d, %d, %d)\n", curr, PRINT_COORD(rseg.seg.start), PRINT_COORD(rseg.seg.end));
+		struct coordinate c = rseg.seg.end;
+		for (int k = 0; k < rseg.n_backtraces; k++) {
+			c = disp_backtrace(c, rseg.bt[k]);
+			struct coordinate cc = coordinate_add(c, disp);
+			int idx = cc.z * w + cc.x;
+			if (a[idx])
+				printf("  intersects with segment %c at (%d, %d, %d)\n", a[idx], PRINT_COORD(c));
+			a[idx] = curr;
+		}
+		curr++;
+	}
+
+	curr = '1';
+	for (int i = 0; i < rn->n_pins; i++) {
+		struct coordinate c = extend_pin(&rn->pins[i]);
+		int idx = c.z * w + c.x;
+		if (a[idx])
+			printf("  intersects with segment %c at (%d, %d, %d)\n", a[idx], PRINT_COORD(c));
+		a[idx] = curr;
+		curr++;
+	}
+
+	printf("\nextracted net follows:\n");
+	for (int z = -3; z <= h; z++) {
+		for (int x = -3; x <= w; x++) {
+			if (z == -1 && x >= 0)
+				putchar('-');
+			else if (z == -3 && x >= 0)
+				putchar(x / 10 + '0');
+			else if (z == -2 && x >= 0)
+				putchar(x % 10 + '0');
+			else if (x == -3 && z >= 0)
+				putchar(z / 10 + '0');
+			else if (x == -2 && z >= 0)
+				putchar(z % 10 + '0');
+			else if (x == -1 && z >= 0)
+				putchar('|');
+			else if (x == -1 && z == -1)
+				putchar('+');
+			else if (z == h && x >= 0)
+				putchar('-');
+			else if (x == w && z >= 0)
+				putchar('|');
+			else if (a[z * w + x])
+				putchar(a[z * w + x]);
+			else
+				putchar(' ');
+		}
+		putchar('\n');
+	}
+}
+
+// forward declaration
+static void extract_segment(struct extracted_net *, struct routed_net *, struct routed_segment *, int, struct coordinate);
+
+static void extract_pin(struct extracted_net *en, struct routed_net *rn, struct placed_pin *p, int strength, struct coordinate disp)
+{
+	struct neighbors neighbors = find_neighbors(rn, p, NULL);
+
+	p->extracted = 1;
+
+	struct coordinate c = extend_pin(p);
+	place_movement(en, c, ordinal_to_movement(p->cell_pin->facing), disp);
+
+	for (int i = 0; i < neighbors.n_neighbors; i++) {
+		struct routed_segment *rseg = neighbors.neighbors[i];
+
+		if (coordinate_equal(rseg->seg.end, c))
+			reverse_segment(rseg);
+		if (coordinate_equal(rseg->seg.start, c) && !rseg->extracted)
+			extract_segment(en, rn, rseg, strength - 1, disp);
+	}
+}
+
 static void extract_segment(struct extracted_net *en, struct routed_net *rn, struct routed_segment *rseg, int strength, struct coordinate disp)
 {
 	// create list of movements
@@ -383,7 +491,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	strengths[0] = strength;
 	struct coordinate c = rseg->seg.start;
 
-	struct neighbors neighbors = find_neighbors(rn, rseg);
+	struct neighbors neighbors = find_neighbors(rn, NULL, rseg);
 
 	// iterate through the movements, calculating the coordinates
 	// as we'll need to make sure to forbid repeating where another
@@ -400,25 +508,31 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	rseg->extracted = 1;
 
 	c = rseg->seg.start;
-	for (int i = 0; i < n_bt; i++) {
-		c = movement_displace(c, movts[i]);
-		place_movement(en, c, movts[i], disp);
+	for (int i = -1; i <= n_bt; i++) {
+		if (i < 0) {
+			c = rseg->seg.start;
+		} else if (i >= n_bt) {
+			c = rseg->seg.end;
+		} else {
+			c = movement_displace(c, movts[i]);
+			place_movement(en, c, movts[i], disp);
+		}
 
 		for (int i = 0; i < neighbors.n_neighbors; i++) {
-			struct routed_segment *rseg = neighbors.neighbors[i];
-			struct segment seg = rseg->seg;
+			struct routed_segment *nrseg = neighbors.neighbors[i];
 
-			if (coordinate_equal(seg.end, c))
-				reverse_segment(rseg);
-			if (coordinate_equal(seg.start, c))
-				extract_segment(en, rn, rseg, strength - 1, disp);
+			if (coordinate_equal(nrseg->seg.end, c))
+				reverse_segment(nrseg);
+			if (coordinate_equal(nrseg->seg.start, c) && !nrseg->extracted)
+				extract_segment(en, rn, nrseg, strength - 1, disp);
 		}
 	}
 
 	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next) {
 		if (rsa->parent == rseg && rsa->child_type == PIN) {
 			struct placed_pin *p = rsa->child.pin;
-			place_movement(en, extend_pin(p), ordinal_to_movement(p->cell_pin->facing), disp);
+			if (!p->extracted)
+				extract_pin(en, rn, p, strength - 1, disp);
 		}
 	}
 
@@ -448,13 +562,14 @@ struct extracted_net *extract_net(struct routed_net *rn, struct coordinate disp)
 	}
 	assert(dp && ds);
 
-	// now, find the part of the segment where
-	struct coordinate dpc = extend_pin(dp);
-	assert(coordinate_equal(dpc, ds->seg.start) || coordinate_equal(dpc, ds->seg.end));
-	if (coordinate_equal(dpc, ds->seg.end))
-		reverse_segment(ds);
+	// reset all pins', segments' extraction
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
+		rsh->rseg.extracted = 0;
 
-	extract_segment(en, rn, ds, dp->cell_pin->level - 1, disp);
+	for (int i = 0; i < rn->n_pins; i++)
+		rn->pins[i].extracted = 0;
+
+	extract_pin(en, rn, dp, dp->cell_pin->level - 1, disp);
 
 	// ensure all segments extracted
 	int extracted = 0, total = 0;
@@ -539,6 +654,9 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 	struct coordinate rt_disp = {-disp.y, -disp.z + margin, -disp.x + margin};
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct extracted_net *en = extract_net(&rt->routed_nets[i], rt_disp);
+		print_rsa(&rt->routed_nets[i]);
+		print_extracted_net(&rt->routed_nets[i]);
+		putchar('\n');
 		for (int i = 0; i < en->n; i++)
 			place_block(e, en->c[i], en->b[i], en->d[i]);
 	}
