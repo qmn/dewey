@@ -29,13 +29,34 @@ struct routing_group {
 	/* cost matrix for this routing instance */
 	unsigned int *cost;
 
-	/* at most one of these can be non-null */
-	struct routed_segment *origin_segment;
-	struct placed_pin *origin_pin;
+	// the (parentless) pin or segment that forms
+	// the start from which a Lee's algo wavefront
+	// begins
+	enum {NONE, SEGMENT, PIN} origin_type;
+	union {
+		void *p;
+		struct routed_segment *rseg;
+		struct placed_pin *pin;
+	} origin;
 };
 
-static struct routing_group *alloc_routing_group(unsigned int usage_size)
+// also confusingly abbreviated MRI
+struct maze_route_instance {
+	struct routed_net *rn;
+
+	struct usage_matrix *m;
+	struct routing_group **visited;
+
+	struct routing_group **rgs;
+
+	int n_groups;         // groups we currently have
+	int remaining_groups; // groups remaining to combine
+};
+
+static struct routing_group *alloc_routing_group(struct maze_route_instance *mri)
 {
+	unsigned int usage_size = USAGE_SIZE(mri->m);
+
 	struct routing_group *rg = malloc(sizeof(struct routing_group));
 	rg->parent = rg;
 	rg->heap = NULL;
@@ -51,8 +72,11 @@ static struct routing_group *alloc_routing_group(unsigned int usage_size)
 	rg->cost = malloc(usage_size * sizeof(unsigned int));
 	memset(rg->cost, 0xff, usage_size * sizeof(unsigned int));
 
-	rg->origin_pin = NULL;
-	rg->origin_segment = NULL;
+	rg->origin_type = NONE;
+	rg->origin.p = NULL;
+
+	mri->rgs = realloc(mri->rgs, sizeof(struct routing_group *) * ++mri->n_groups);
+	mri->rgs[mri->n_groups-1] = rg;
 
 	return rg;
 }
@@ -64,64 +88,6 @@ void free_routing_group(struct routing_group *rg)
 	free(rg->cost);
 }
 
-// routines to initialize a routing group based on a pin or a segment
-static void init_routing_group_with_pin(struct routing_group *rg, struct usage_matrix *m, struct placed_pin *p, struct routing_group **visited)
-{
-	struct coordinate start = extend_pin(p);
-	rg->bt[usage_idx(m, start)] = BT_START;
-	rg->cost[usage_idx(m, start)] = 0;
-	struct cost_coord start_cc = {0, start};
-	cost_coord_heap_insert(rg->heap, start_cc);
-	visited[usage_idx(m, extend_pin(p))] = rg;
-
-	rg->origin_pin = p;
-	rg->origin_segment = NULL;
-}
-
-static void init_routing_group_with_segment(struct routing_group *rg, struct usage_matrix *m, struct routed_segment *rseg, struct routing_group **visited)
-{
-	struct coordinate c = rseg->seg.end;
-	for (int i = 0; i < rseg->n_backtraces; i++) {
-		c = disp_backtrace(c, rseg->bt[i]);
-		assert(in_usage_bounds(m, c));
-
-		struct cost_coord next = {0, c};
-		cost_coord_heap_insert(rg->heap, next);
-		rg->cost[usage_idx(m, c)] = 0;
-		rg->bt[usage_idx(m, c)] = BT_START;
-		visited[usage_idx(m, c)] = rg;
-	}
-
-	for (int i = 0; i < rseg->n_child_segments; i++) {
-		assert(rseg != rseg->child_segments[i]);
-		init_routing_group_with_segment(rg, m, rseg->child_segments[i], visited);
-	}
-
-	for (int i = 0; i < rseg->n_child_pins; i++)
-		init_routing_group_with_pin(rg, m, rseg->child_pins[i], visited);
-
-	rg->origin_segment = rseg;
-	rg->origin_pin = NULL; // reset any origin_pin that may have been set
-}
-
-// each routing group has an originating child or segment
-static void routed_segment_add_child(struct routed_segment *rseg, struct routing_group *child)
-{
-	assert(!(child->origin_pin && child->origin_segment));
-	if (child->origin_pin) {
-		rseg->child_pins = realloc(rseg->child_pins, sizeof(struct placed_pin *) * ++rseg->n_child_pins);
-		rseg->child_pins[rseg->n_child_pins - 1] = child->origin_pin;
-		child->origin_pin->parent = rseg;
-
-	} else if (child->origin_segment) {
-		rseg->child_segments = realloc(rseg->child_segments, sizeof(struct routed_segment *) * ++rseg->n_child_segments);
-		rseg->child_segments[rseg->n_child_segments - 1] = child->origin_segment;
-		assert(rseg != child->origin_segment);
-		child->origin_segment->parent = rseg;
-
-	}
-}
-
 // union-by-rank's find() method adapted to routing groups
 static struct routing_group *routing_group_find(struct routing_group *rg)
 {
@@ -130,6 +96,49 @@ static struct routing_group *routing_group_find(struct routing_group *rg)
 
 	return rg->parent;
 }
+
+// routines to initialize a routing group based on a pin or a segment
+static void init_routing_group_with_pin(struct maze_route_instance *mri, struct routing_group *rg, struct placed_pin *p)
+{
+	struct coordinate start = extend_pin(p);
+	rg->bt[usage_idx(mri->m, start)] = BT_START;
+	rg->cost[usage_idx(mri->m, start)] = 0;
+	struct cost_coord start_cc = {0, start};
+	cost_coord_heap_insert(rg->heap, start_cc);
+	mri->visited[usage_idx(mri->m, extend_pin(p))] = rg;
+
+	rg->origin_type = PIN;
+	rg->origin.pin = p;
+}
+
+// initializes a routing group with a segment
+static void init_routing_group_with_segment(struct maze_route_instance *mri, struct routing_group *rg, struct routed_segment *rseg)
+{
+	struct coordinate c = rseg->seg.end;
+	for (int i = 0; i < rseg->n_backtraces; i++) {
+		c = disp_backtrace(c, rseg->bt[i]);
+		assert(in_usage_bounds(mri->m, c));
+
+		struct cost_coord next = {0, c};
+		cost_coord_heap_insert(rg->heap, next);
+		rg->cost[usage_idx(mri->m, c)] = 0;
+		rg->bt[usage_idx(mri->m, c)] = BT_START;
+		mri->visited[usage_idx(mri->m, c)] = rg;
+	}
+
+	rg->origin_type = SEGMENT;
+	rg->origin.rseg = rseg;
+}
+
+// each routing group has an originating child or segment
+static void routed_segment_add_child(struct routed_net *rn, struct routed_segment *rseg, struct routing_group *child)
+{
+	if (child->origin_type == PIN)
+		add_adjacent_pin(rn, rseg, child->origin.pin);
+	else if (child->origin_type == SEGMENT)
+		add_adjacent_segment(rn, rseg, child->origin.rseg);
+}
+
 
 /* find the smallest active (i.e., parent = self) routing group that has a heap
    with elements */
@@ -153,24 +162,6 @@ static struct routing_group *find_smallest_heap(struct routing_group **rgs, unsi
 	assert(smallest);
 
 	return smallest;
-}
-
-static int count_groups_to_merge(struct routed_net *rn)
-{
-	int count = 0;
-	for (int i = 0; i < rn->n_pins; i++) {
-		struct placed_pin *p = &rn->pins[i];
-		if (!p->parent)
-			count++;
-	}
-
-	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
-		struct routed_segment *rseg = &rsh->rseg;
-		if (!rseg->parent && segment_routed(rseg))
-			count++;
-	}
-
-	return count;
 }
 
 // mark the usage matrix in a 3x3 zone centered on c to prevent subsequent routings
@@ -217,7 +208,7 @@ static struct routed_segment make_segment_from_backtrace(struct usage_matrix *m,
 		enum backtrace *a_bt, enum backtrace *b_bt)
 {
 	int bt_size = INITIAL_BT_SIZE;
-	struct routed_segment rseg = {{{0, 0, 0}, {0, 0, 0}}, 0, NULL, 0, NULL, NULL, 0, NULL, 0, NULL, 0};
+	struct routed_segment rseg = {{{0, 0, 0}, {0, 0, 0}}, 0, NULL, 0, NULL, 0};
 	rseg.bt = calloc(bt_size, sizeof(enum backtrace));
 
 	enum backtrace b_to_a = compute_backtrace(b, a);
@@ -286,23 +277,74 @@ int segment_in_bounds(struct usage_matrix *m, struct routed_segment *rseg)
 	return 1;
 }
 
-// also confusingly abbreviated MRI
-struct maze_route_instance {
-	struct routed_net *rn;
+// if the parent group is not represented by an origin, then
+// create a new routing group for it; otherwise, add it to an existing group
+// to search for a pin, set rseg to NULL; for a segment, set p to NULL
+// this is the bottom-up version of populate_routing_group()
+// returns 1 if it made a new group
+void find_or_make_routing_group(struct maze_route_instance *mri, struct placed_pin *p, struct routed_segment *rseg)
+{
+	assert(!!p ^ !!rseg);
 
-	struct usage_matrix *m;
-	struct routing_group **visited;
+	struct routed_segment *parent = find_parent(mri->rn, p, rseg);
 
-	struct routing_group **rgs;
+	// find parent's routing group
+	struct routing_group *rg = NULL;
+	for (int i = 0; i < mri->n_groups; i++)
+		if ((!parent && mri->rgs[i]->origin_type == PIN && mri->rgs[i]->origin.pin == p) ||
+		    (parent && mri->rgs[i]->origin_type == SEGMENT && mri->rgs[i]->origin.rseg == parent))
+			rg = mri->rgs[i];
 
-	int n_groups;         // groups we currently have
-	int remaining_groups; // groups remaining to combine
-	int total_groups;     // groups we started out with
-};
+	// if a parent isn't found among mri->rgs, this is a new routing group
+	if (!rg) {
+		rg = alloc_routing_group(mri);
+	}
+
+	// expand this routing group with the segment or pin
+	if (parent) {
+		if (rseg)
+			init_routing_group_with_segment(mri, rg, rseg);
+		else if (p)
+			init_routing_group_with_pin(mri, rg, p);
+		else
+			printf("[find_or_make_routing_group] wat\n");
+
+		// if we have a parent rseg, make sure we set the
+		// parent as the origin
+		rg->origin_type = SEGMENT;
+		rg->origin.rseg = parent;
+	} else {
+		// if there's no parent segment, the pin is the origin
+		init_routing_group_with_pin(mri, rg, p);
+	}
+}
+
+// for all of the routing groups other than the one specified,
+// find all children routing_groups and add their origin pins or
+// segments into this one; behavior for setting origin is undefined
+void populate_routing_group(struct maze_route_instance *mri, struct routing_group *rg)
+{
+	for (int i = 0; i < mri->n_groups; i++) {
+		struct routing_group *org = mri->rgs[i], *porg;
+		if (org == rg)
+			continue;
+
+		porg = routing_group_find(org);
+
+		if (porg == rg) {
+			if (org->origin_type == PIN)
+				init_routing_group_with_pin(mri, rg, org->origin.pin);
+			else if (org->origin_type == SEGMENT)
+				init_routing_group_with_segment(mri, rg, org->origin.rseg);
+			else
+				printf("[populate_routing_group] wat\n");
+		}
+	}
+}
 
 struct maze_route_instance create_maze_route_instance(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
 {
-	struct maze_route_instance mri = {NULL, NULL, NULL, NULL, 0, 0, 0};
+	struct maze_route_instance mri = {NULL, NULL, NULL, NULL, 0, 0};
 
 	mri.rn = rn;
 
@@ -320,30 +362,15 @@ struct maze_route_instance create_maze_route_instance(struct cell_placements *cp
 
 	// at fewest we can have just one remaining group
 	mri.n_groups = 0;
-	mri.total_groups = count_groups_to_merge(rn) * 2 - 1;
-	mri.rgs = calloc(mri.total_groups, sizeof(struct routing_group *));
+	mri.rgs = NULL;
 
-	// initialize parent-less pins
-	for (int i = 0; i < rn->n_pins; i++) {
-		struct placed_pin *p = &rn->pins[i];
-		if (!p->parent) {
-			struct routing_group *pin_rg = alloc_routing_group(usage_size);
-			init_routing_group_with_pin(pin_rg, mri.m, p, mri.visited);
-			mri.rgs[mri.n_groups++] = pin_rg;
-			assert(!pin_rg->origin_segment);
-		}
-	}
+	// initialize pins
+	for (int i = 0; i < rn->n_pins; i++)
+		find_or_make_routing_group(&mri, &rn->pins[i], NULL);
 
-	// intialize parent-less segments
-	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
-		struct routed_segment *rseg = &rsh->rseg;
-		if (!rseg->parent && segment_routed(rseg)) {
-			struct routing_group *seg_rg = alloc_routing_group(usage_size);
-			init_routing_group_with_segment(seg_rg, mri.m, rseg, mri.visited);
-			mri.rgs[mri.n_groups++] = seg_rg;
-			assert(!seg_rg->origin_pin);
-		}
-	}
+	// intialize segments
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
+		find_or_make_routing_group(&mri, NULL, &rsh->rseg);
 
 	mri.remaining_groups = mri.n_groups;
 
@@ -453,18 +480,19 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 			// add, as children, the two groups formed by this segment
 			struct routed_segment *rseg = &rsh->rseg;
 			assert(rseg);
-			routed_segment_add_child(rseg, rg);
-			routed_segment_add_child(rseg, visited_rg);
+			routed_segment_add_child(mri->rn, rseg, rg);
+			routed_segment_add_child(mri->rn, rseg, visited_rg);
 
 			// create a new routing group based on this segment
-			struct routing_group *new_rg = alloc_routing_group(USAGE_SIZE(m));
+			struct routing_group *new_rg = alloc_routing_group(mri);
 			rg->parent = visited_rg->parent = new_rg;
-			init_routing_group_with_segment(new_rg, m, rseg, mri->visited);
-			assert(!new_rg->origin_pin);
+
+			init_routing_group_with_segment(mri, new_rg, rseg);
+			populate_routing_group(mri, new_rg);
+			new_rg->origin_type = SEGMENT;
+			new_rg->origin.rseg = rseg;
 
 			// add the group to the list
-			mri->rgs[mri->n_groups++] = new_rg;
-			assert(mri->n_groups <= mri->total_groups);
 			mri->remaining_groups--;
 			return 1;
 		}
@@ -506,7 +534,7 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 	// repeat until one group remains
 	while (mri.remaining_groups > 1) {
 		// select the smallest non-empty heap that is also its own parent (rg->parent = rg)
-		struct routing_group *rg = find_smallest_heap(mri.rgs, mri.total_groups);
+		struct routing_group *rg = find_smallest_heap(mri.rgs, mri.n_groups);
 		assert(rg == rg->parent);
 
 		// expand this smallest heap

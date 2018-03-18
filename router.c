@@ -183,6 +183,12 @@ int segment_routed(struct routed_segment *rseg)
 void routed_net_add_segment_node(struct routed_net *rn, struct routed_segment_head *rsh)
 {
 	assert(rsh->next == NULL);
+	rsh->next = rn->routed_segments;
+	rn->routed_segments = rsh;
+
+	// oh my goodness I'm keeping this for shame
+	/*
+	assert(rsh->next == NULL);
 
 	struct routed_segment_head *tail = rn->routed_segments;
 	if (!tail) {
@@ -194,6 +200,7 @@ void routed_net_add_segment_node(struct routed_net *rn, struct routed_segment_he
 		tail = tail->next;
 
 	tail->next = rsh;
+	*/
 }
 
 
@@ -441,57 +448,30 @@ struct routed_segment_head *remove_rsh(struct routed_segment *rseg)
 	return node;
 }
 
-void rip_up_segment_parent(struct routed_segment *parent, struct routed_segment *child)
-{
-	int i;
-	int found = 0;
-
-	for (i = 0; i < parent->n_child_segments; i++) {
-		if (parent->child_segments[i] == child) {
-			found = 1;
-			break;
-		}
-	}
-	assert(found);
-
-	// switch the one to remove with the last one, and
-	// force last one to NULL
-	int last = parent->n_child_segments - 1;
-	if (i != last)
-		parent->child_segments[i] = parent->child_segments[last];
-
-	parent->child_segments[last] = NULL;
-	parent->n_child_segments--;
-}
-
 // it's important to maintain the order of the routed segments in the routed
 // net because the rip_up set struct relies on pointers
 void rip_up_segment(struct routed_segment *rseg)
 {
-	// unlink segments' parent pointer here
-	for (int i = 0; i < rseg->n_child_segments; i++) {
-		struct routed_segment *child_rseg = rseg->child_segments[i];
-		child_rseg->parent = NULL;
-	}
-	if (rseg->child_segments)
-		free(rseg->child_segments);
-	rseg->child_segments = NULL;
-	rseg->n_child_segments = 0;
+	struct routed_net *rn = rseg->net;
 
-	// unlink pins' parent pointer here
-	for (int i = 0; i < rseg->n_child_pins; i++) {
-		struct placed_pin *child_pin = rseg->child_pins[i];
-		child_pin->parent = NULL;
-	}
-	if (rseg->child_pins)
-		free(rseg->child_pins);
-	rseg->child_pins = NULL;
-	rseg->n_child_pins = 0;
-
-	// find and remove this segment from its parent
-	struct routed_segment *parent_rseg = rseg->parent;
-	if (parent_rseg) {
-		rip_up_segment_parent(parent_rseg, rseg);
+	// find all references of this segment in rn->adjacencies
+	// and disconnect them
+	struct routed_segment_adjacency *rsa, *prsa;
+	for (prsa = rsa = rn->adjacencies; rsa; ) {
+		if (rsa->parent == rseg || (rsa->child_type == SEGMENT && rsa->child.rseg == rseg)) {
+			if (rsa == rn->adjacencies) {
+				rn->adjacencies = rsa->next;
+				free(rsa);
+				rsa = rn->adjacencies;
+			} else {
+				prsa->next = rsa->next;
+				free(rsa);
+				rsa = prsa->next;
+			}
+		} else {
+			prsa = rsa;
+			rsa = rsa->next;
+		}
 	}
 
 	assert(rseg->bt);
@@ -510,6 +490,17 @@ void rip_up_rsh(struct routed_segment_head *next)
 		curr = next;
 		next = next->next;
 		rip_up_segment(&curr->rseg);
+		free(curr);
+	}
+}
+
+// rips up all rsas starting from here
+void rip_up_rsa(struct routed_segment_adjacency *next)
+{
+	struct routed_segment_adjacency *curr;
+	while (next) {
+		curr = next;
+		next = next->next;
 		free(curr);
 	}
 }
@@ -650,15 +641,12 @@ static void optimize_routings(struct cell_placements *cp, struct routings *rt, F
 				continue;
 
 			struct routed_net *rn = &rt->routed_nets[i];
-			struct routed_segment **old_parents = malloc(rn->n_pins * sizeof(struct routed_segment *));
-			for (int i = 0; i < rn->n_pins; i++) {
-				old_parents[i] = rn->pins[i].parent;
-				rn->pins[i].parent = NULL;
-			}
 
 			recenter(cp, rt, 2);
 			struct routed_segment_head *old_rsh = rn->routed_segments;
+			struct routed_segment_adjacency *old_rsa = rn->adjacencies;
 			rn->routed_segments = NULL;
+			rn->adjacencies = NULL;
 
 			maze_reroute(cp, rt, rn, 2);
 			assert_in_bounds(rn);
@@ -670,22 +658,18 @@ static void optimize_routings(struct cell_placements *cp, struct routings *rt, F
 			// if we had zero violations and we reduce the score, then accept it
 			// do not introduce violations or score increases
 			if (new_violations < violations || (new_violations == violations && new_score < old_score)) {
-				rip_up_rsh(old_rsh); // SHHH
+				rip_up_rsh(old_rsh);
 				old_score = new_score;
 				violations = new_violations;
 				had_change++;
 			} else {
-				rip_up_rsh(rn->routed_segments); // SHHH
+				rip_up_rsh(rn->routed_segments);
 				rn->routed_segments = old_rsh;
-				// restore old parents
-				for (int i = 0; i < rn->n_pins; i++)
-					rn->pins[i].parent = old_parents[i];
+				rn->adjacencies = old_rsa;
 			}
 
 			// printf("[optimizing] net %d: %d violations (should be none)\n", i, violations);
 			// assert(violations == 0);
-
-			free(old_parents);
 
 			rerouted[i]++;
 			n_rerouted++;
@@ -749,7 +733,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 			// remove segment from rt
 			struct routed_segment_head *rsh = remove_rsh(rus.rip_up[i]);
-			rip_up_segment(&(rsh->rseg));
+			rip_up_segment(&rsh->rseg);
 			free(rsh);
 		}
 

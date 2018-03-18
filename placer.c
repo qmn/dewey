@@ -511,7 +511,6 @@ struct pin_placements *placer_place_pins(struct cell_placements *cp)
 			pin.cell = c;
 			pin.cell_pin = &(c->pins[pl.turns][j]);
 			pin.net = pl.nets[j];
-			pin.parent = NULL;
 
 			pins[k++] = pin;
 		}

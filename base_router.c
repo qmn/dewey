@@ -1,5 +1,8 @@
 #include "base_router.h"
 
+#include <assert.h>
+#include <stdlib.h>
+
 struct coordinate disp_backtrace(struct coordinate c, enum backtrace b)
 {
 	switch (b) {
@@ -92,4 +95,42 @@ enum backtrace compute_backtrace(struct coordinate here, struct coordinate there
 	}
 
 	return BT_NONE;
+}
+
+void add_adjacent_segment(struct routed_net *rn, struct routed_segment *sega, struct routed_segment *segb)
+{
+	assert(sega != segb);
+
+	struct routed_segment_adjacency *rsa = malloc(sizeof(struct routed_segment_adjacency));
+	rsa->parent = sega;
+	rsa->child_type = SEGMENT;
+	rsa->child.rseg = segb;
+
+	rsa->next = rn->adjacencies;
+	rn->adjacencies = rsa;
+}
+
+void add_adjacent_pin(struct routed_net *rn, struct routed_segment *seg, struct placed_pin *pin)
+{
+	struct routed_segment_adjacency *rsa = malloc(sizeof(struct routed_segment_adjacency));
+	rsa->parent = seg;
+	rsa->child_type = PIN;
+	rsa->child.pin = pin;
+
+	rsa->next = rn->adjacencies;
+	rn->adjacencies = rsa;
+}
+
+// find the parent of the pin, or the routed segment
+// for a pin, set rseg to NULL -- returns NULL if no parent, or the segment if there is
+// for a segment, set p to NULL -- if there is no parent, it returns the rseg passed in
+struct routed_segment *find_parent(struct routed_net *rn, struct placed_pin *p, struct routed_segment *rseg)
+{
+	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next) {
+		if ((rseg && rsa->child_type == SEGMENT && rsa->child.rseg == rseg) ||
+		    (!rseg && rsa->child_type == PIN && rsa->child.pin == p))
+			return find_parent(rn, p, rsa->parent);
+	}
+
+	return rseg;
 }

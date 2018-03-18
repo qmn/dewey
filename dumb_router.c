@@ -6,10 +6,10 @@
 #include "base_router.h"
 
 // route, based on a cityblock algorithm, without regard to Y or obstacles
-static struct routed_segment cityblock_route(struct segment seg)
+static void cityblock_route(struct routed_segment *rseg)
 {
-	struct coordinate a = seg.start;
-	struct coordinate b = seg.end;
+	struct coordinate a = rseg->seg.start;
+	struct coordinate b = rseg->seg.end;
 
 	int len = distance_cityblock(a, b); // does not include BT_START
 	int count = 0;
@@ -36,8 +36,8 @@ static struct routed_segment cityblock_route(struct segment seg)
 
 	assert(count == len);
 
-	struct routed_segment rseg = {seg, len, path, 0, NULL, NULL, 0, NULL, 0, NULL, 0};
-	return rseg;
+	rseg->n_backtraces = len;
+	rseg->bt = path;
 }
 
 
@@ -81,33 +81,6 @@ static void dumb_mst_union(struct mst_node *x, struct mst_node *y)
 		ry->rank++;
 }
 
-struct routed_segment *find_parent_rseg(struct placed_pin *p)
-{
-	struct routed_segment *rseg = p->parent;
-	if (!rseg)
-		return NULL;
-
-	while (rseg->parent != NULL)
-		rseg = rseg->parent;
-
-	return rseg;
-}
-
-void add_child_pin(struct routed_segment *rseg, struct placed_pin *p)
-{
-	rseg->child_pins = realloc(rseg->child_pins, sizeof(struct placed_pin *) * ++rseg->n_child_pins);
-	rseg->child_pins[rseg->n_child_pins - 1] = p;
-	p->parent = rseg;
-}
-
-void add_child_segment(struct routed_segment *parent_rseg, struct routed_segment *rseg)
-{
-	parent_rseg->child_segments = realloc(parent_rseg->child_segments, sizeof(struct routed_segment *) * ++parent_rseg->n_child_segments);
-	parent_rseg->child_segments[parent_rseg->n_child_segments - 1] = rseg;
-	rseg->parent = parent_rseg;
-}
-
-
 // create routed segments for this net blindly (that is, without regard
 // to other objects) using cityblock routing
 void dumb_mst_route(struct routed_net *rn)
@@ -140,24 +113,24 @@ void dumb_mst_route(struct routed_net *rn)
 			struct segment seg = {extend_pin(x->pin), extend_pin(y->pin)};
 			struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
 			rsh->next = NULL;
-			rsh->rseg = cityblock_route(seg);
-			rsh->rseg.net = rn;
+			rsh->rseg = (struct routed_segment){seg, 0, NULL, 0, rn, 0};
+			cityblock_route(&rsh->rseg);
 			
 			// if either object being joined has a parent segment already,
 			// set that parent segment as a child of this newly-formed
 			// segment
 
-			struct routed_segment *xp_rseg = find_parent_rseg(x->pin);
+			struct routed_segment *xp_rseg = find_parent(rn, x->pin, NULL);
 			if (xp_rseg)
-				add_child_segment(&rsh->rseg, xp_rseg);
+				add_adjacent_segment(rn, &rsh->rseg, xp_rseg);
 			else
-				add_child_pin(&rsh->rseg, x->pin);
+				add_adjacent_pin(rn, &rsh->rseg, x->pin);
 
-			struct routed_segment *yp_rseg = find_parent_rseg(y->pin);
+			struct routed_segment *yp_rseg = find_parent(rn, y->pin, NULL);
 			if (yp_rseg)
-				add_child_segment(&rsh->rseg, yp_rseg);
+				add_adjacent_segment(rn, &rsh->rseg, yp_rseg);
 			else
-				add_child_pin(&rsh->rseg, y->pin);
+				add_adjacent_pin(rn, &rsh->rseg, y->pin);
 
 			routed_net_add_segment_node(rn, rsh);
 			count++;
@@ -175,6 +148,7 @@ void dumb_route(struct routed_net *rn, struct blif *blif, struct net_pin_map *np
 
 	rn->net = net;
 	rn->routed_segments = NULL;
+	rn->adjacencies = NULL;
 
 	rn->n_pins = n_pins;
 	rn->pins = malloc(sizeof(struct placed_pin) * rn->n_pins);
@@ -185,31 +159,23 @@ void dumb_route(struct routed_net *rn, struct blif *blif, struct net_pin_map *np
 		enum backtrace *path = malloc(sizeof(enum backtrace));
 		path[0] = BT_START;
 
-		struct placed_pin **child_pins = malloc(sizeof(struct placed_pin *));
-		child_pins[0] = &npm->pins[net][0];
-
 		struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
-		rsh->rseg = (struct routed_segment){seg, 1, path, 0, rn, NULL, 0, NULL, 1, child_pins, 0};
+		rsh->rseg = (struct routed_segment){seg, 1, path, 0, rn, 0};
 		rsh->next = NULL;
-		child_pins[0]->parent = &rsh->rseg;
+
+		add_adjacent_pin(rn, &rsh->rseg, &npm->pins[net][0]);
 		
 		rn->routed_segments = rsh;
 	} else if (n_pins == 2) {
 		struct segment seg = {extend_pin(&npm->pins[net][0]), extend_pin(&npm->pins[net][1])};
 
-		struct placed_pin **child_pins = malloc(2 * sizeof(struct placed_pin *));
-		child_pins[0] = &npm->pins[net][0];
-		child_pins[1] = &npm->pins[net][1];
-
 		struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
-		rsh->rseg = cityblock_route(seg);
-		rsh->rseg.net = rn;
-		rsh->rseg.n_child_pins = 2;
-		rsh->rseg.child_pins = child_pins;
-		rsh->rseg.extracted = 0;
-		child_pins[0]->parent = &rsh->rseg;
-		child_pins[1]->parent = &rsh->rseg;
 		rsh->next = NULL;
+		rsh->rseg = (struct routed_segment){seg, 0, NULL, 0, rn, 0};
+		cityblock_route(&rsh->rseg);
+
+		add_adjacent_pin(rn, &rsh->rseg, &npm->pins[net][0]);
+		add_adjacent_pin(rn, &rsh->rseg, &npm->pins[net][1]);
 
 		rn->routed_segments = rsh;
 	} else {
