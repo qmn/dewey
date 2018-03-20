@@ -361,16 +361,22 @@ static void add_neighbor_segment(struct neighbors *n, struct routed_segment *rse
 	n->neighbors[n->n_neighbors-1].n.rseg = rseg;
 }
 
-static void check_adjacent(struct routed_net *rn, struct neighbors *n, struct coordinate c)
+static void check_adjacent(struct routed_net *rn, struct neighbors *n, struct coordinate c, void *skip)
 {
 	for (int i = 0; i < rn->n_pins; i++) {
 		struct placed_pin *q = &rn->pins[i];
+		if ((void *)q == skip)
+			continue;
+
 		if (coordinate_equal(c, extend_pin(q)))
 			add_neighbor_pin(n, q, c);
 	}
 
 	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
 		struct routed_segment *rseg = &rsh->rseg;
+		if ((void *)rseg == skip)
+			continue;
+
 		struct segment seg = rseg->seg;
 
 		struct coordinate cc = seg.end;
@@ -395,14 +401,14 @@ static struct neighbors find_neighbors(struct routed_net *rn, struct placed_pin 
 
 	if (p) {
 		struct coordinate c = extend_pin(p);
-		check_adjacent(rn, &n, c);
+		check_adjacent(rn, &n, c, (void *)p);
 
 	} else if (rseg) {
 		struct segment seg = rseg->seg;
 
 		struct coordinate c = seg.end;
 		for (int i = 0; i <= rseg->n_backtraces; i++) {
-			check_adjacent(rn, &n, c);
+			check_adjacent(rn, &n, c, (void *)rseg);
 
 			if (i < rseg->n_backtraces)
 				c = disp_backtrace(c, rseg->bt[i]);
@@ -548,8 +554,6 @@ static void propagate_extraction(struct extracted_net *en, struct routed_net *rn
 				extract_pin(en, rn, n.n.pin, strength, disp);
 			else if (n.tn == SEGMENT && !n.n.rseg->extracted)
 				extract_segment(en, rn, n.n.rseg, c, strength, disp);
-			else
-				printf("[propagate_extraction] wat\n");
 		}
 	}
 }
@@ -574,7 +578,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	if (!n_bt)
 		return;
 
-	printf("i am segment (%d, %d, %d) -> (%d, %d, %d); from = (%d, %d, %d)\n", PRINT_COORD(rseg->seg.start), PRINT_COORD(rseg->seg.end), PRINT_COORD(from));
+	// printf("i am segment (%d, %d, %d) -> (%d, %d, %d); from = (%d, %d, %d)\n", PRINT_COORD(rseg->seg.start), PRINT_COORD(rseg->seg.end), PRINT_COORD(from));
 
 	// find the position of `from` in this segment
 	struct coordinate c = rseg->seg.end;
@@ -582,7 +586,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	for (i = 0; i <= n_bt; i++) {
 		// printf("  checking (%d, %d, %d)\n", PRINT_COORD(c));
 		if (coordinate_equal(c, from)) {
-			printf("match!\n");
+			// printf("match!\n");
 			break;
 		}
 
@@ -597,7 +601,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 		return;
 
 	struct neighbors neighbors = find_neighbors(rn, NULL, rseg);
-	printf("i am segment (%d, %d, %d) -> (%d, %d, %d) and i have %d neighbors\n", PRINT_COORD(rseg->seg.start), PRINT_COORD(rseg->seg.end), neighbors.n_neighbors);
+	// printf("i am segment (%d, %d, %d) -> (%d, %d, %d) and i have %d neighbors\n", PRINT_COORD(rseg->seg.start), PRINT_COORD(rseg->seg.end), neighbors.n_neighbors);
 	rseg->extracted = 1;
 
 	// catch anything else that's here
@@ -774,9 +778,9 @@ struct extraction *extract(struct cell_placements *cp, struct routings *rt)
 	struct coordinate rt_disp = {-disp.y, -disp.z + margin, -disp.x + margin};
 	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
 		struct extracted_net *en = extract_net(&rt->routed_nets[i], rt_disp);
-		print_rsa(&rt->routed_nets[i]);
-		print_extracted_net(&rt->routed_nets[i]);
-		putchar('\n');
+		// print_rsa(&rt->routed_nets[i]);
+		// print_extracted_net(&rt->routed_nets[i]);
+		// putchar('\n');
 		for (int i = 0; i < en->n; i++)
 			place_block(e, en->c[i], en->b[i], en->d[i]);
 	}
