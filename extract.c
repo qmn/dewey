@@ -331,10 +331,61 @@ static void add_repeaters(enum movement *m, int* strengths, int n)
 	}
 }
 
+struct neighbor {
+	struct coordinate at;
+	enum {SEGMENT, PIN} tn;
+	union {
+		struct routed_segment *rseg;
+		struct placed_pin *pin;
+	} n;
+};
+
 struct neighbors {
 	int n_neighbors;
-	struct routed_segment **neighbors;
+	struct neighbor *neighbors;
 };
+
+static void add_neighbor_pin(struct neighbors *n, struct placed_pin *p, struct coordinate c)
+{
+	n->neighbors = realloc(n->neighbors, sizeof(struct neighbor) * ++n->n_neighbors);
+	n->neighbors[n->n_neighbors-1].at = c;
+	n->neighbors[n->n_neighbors-1].tn = PIN;
+	n->neighbors[n->n_neighbors-1].n.pin = p;
+}
+
+static void add_neighbor_segment(struct neighbors *n, struct routed_segment *rseg, struct coordinate c)
+{
+	n->neighbors = realloc(n->neighbors, sizeof(struct neighbor) * ++n->n_neighbors);
+	n->neighbors[n->n_neighbors-1].at = c;
+	n->neighbors[n->n_neighbors-1].tn = SEGMENT;
+	n->neighbors[n->n_neighbors-1].n.rseg = rseg;
+}
+
+static void check_adjacent(struct routed_net *rn, struct neighbors *n, struct coordinate c)
+{
+	for (int i = 0; i < rn->n_pins; i++) {
+		struct placed_pin *q = &rn->pins[i];
+		if (coordinate_equal(c, extend_pin(q)))
+			add_neighbor_pin(n, q, c);
+	}
+
+	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+		struct routed_segment *rseg = &rsh->rseg;
+		struct segment seg = rseg->seg;
+
+		struct coordinate cc = seg.end;
+		for (int i = 0; i < rseg->n_backtraces; i++) {
+			if (coordinate_equal(c, cc))
+				add_neighbor_segment(n, rseg, c);
+
+			cc = disp_backtrace(cc, rseg->bt[i]);
+		}
+
+		assert(coordinate_equal(cc, seg.start));
+		if (coordinate_equal(c, cc))
+			add_neighbor_segment(n, rseg, c);
+	}
+}
 
 static struct neighbors find_neighbors(struct routed_net *rn, struct placed_pin *p, struct routed_segment *rseg)
 {
@@ -342,17 +393,21 @@ static struct neighbors find_neighbors(struct routed_net *rn, struct placed_pin 
 
 	struct neighbors n = {0, NULL};
 
-	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next) {
-		// get ordinary segments as neighbors
-		if (rseg && rsa->parent == rseg && rsa->child_type == SEGMENT) {
-			n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
-			n.neighbors[n.n_neighbors-1] = rsa->child.rseg;
-		} else if (rseg && rsa->child_type == SEGMENT && rsa->child.rseg == rseg) {
-			n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
-			n.neighbors[n.n_neighbors-1] = rsa->parent;
-		} else if (p && rsa->child_type == PIN && rsa->child.pin == p) {
-			n.neighbors = realloc(n.neighbors, sizeof(struct routed_segment *) * ++n.n_neighbors);
-			n.neighbors[n.n_neighbors-1] = rsa->parent;
+	if (p) {
+		struct coordinate c = extend_pin(p);
+		check_adjacent(rn, &n, c);
+
+	} else if (rseg) {
+		struct segment seg = rseg->seg;
+
+		struct coordinate c = seg.end;
+		for (int i = 0; i <= rseg->n_backtraces; i++) {
+			check_adjacent(rn, &n, c);
+
+			if (i < rseg->n_backtraces)
+				c = disp_backtrace(c, rseg->bt[i]);
+			else
+				assert(coordinate_equal(c, seg.start));
 		}
 	}
 
@@ -361,21 +416,9 @@ static struct neighbors find_neighbors(struct routed_net *rn, struct placed_pin 
 
 static int has_abutting_neighbor(struct neighbors neighbors, struct coordinate at)
 {
-	for (int i = 0; i < neighbors.n_neighbors; i++) {
-		struct routed_segment *rseg = neighbors.neighbors[i];
-		int n_bt = rseg->n_backtraces;
-
-		struct coordinate c = rseg->seg.end;
-		for (int j = -1; j <= n_bt; j++) {
-			if (j >= 0 && j < n_bt)
-				c = disp_backtrace(c, rseg->bt[j]);
-			else if (j == n_bt)
-				c = rseg->seg.start;
-
-			if (coordinate_equal(c, at))
-				return 1;
-		}
-	}
+	for (int i = 0; i < neighbors.n_neighbors; i++)
+		if (coordinate_equal(neighbors.neighbors[i].at, at))
+			return 1;
 
 	return 0;
 }
@@ -480,7 +523,8 @@ static void print_extracted_net(struct routed_net *rn)
 	}
 }
 
-// forward declaration
+// forward declarations
+static void propagate_extraction(struct extracted_net *, struct routed_net *, struct neighbors, struct coordinate, int, struct coordinate);
 static void extract_segment(struct extracted_net *, struct routed_net *rn, struct routed_segment *, struct coordinate, int, struct coordinate);
 
 static void extract_pin(struct extracted_net *en, struct routed_net *rn, struct placed_pin *p, int strength, struct coordinate disp)
@@ -492,28 +536,20 @@ static void extract_pin(struct extracted_net *en, struct routed_net *rn, struct 
 	struct coordinate c = extend_pin(p);
 	place_movement(en, c, ordinal_to_movement(p->cell_pin->facing), disp);
 
-	for (int i = 0; i < neighbors.n_neighbors; i++) {
-		struct routed_segment *rseg = neighbors.neighbors[i];
-		if (!rseg->extracted)
-			extract_segment(en, rn, rseg, c, strength - 1, disp);
-	}
+	propagate_extraction(en, rn, neighbors, c, strength, disp);
 }
 
-static void propagate_extraction(struct extracted_net *en, struct routed_net *rn, struct routed_segment *rseg, struct neighbors neighbors, struct coordinate c, int strength, struct coordinate disp)
+static void propagate_extraction(struct extracted_net *en, struct routed_net *rn, struct neighbors neighbors, struct coordinate c, int strength, struct coordinate disp)
 {
 	for (int k = 0; k < neighbors.n_neighbors; k++) {
-		struct routed_segment *nrseg = neighbors.neighbors[k];
-
-		if (!nrseg->extracted)
-			extract_segment(en, rn, nrseg, c, strength, disp);
-	}
-
-	// extract pins
-	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next) {
-		if (rsa->parent == rseg && rsa->child_type == PIN) {
-			struct placed_pin *p = rsa->child.pin;
-			if (!p->extracted)
-				extract_pin(en, rn, p, strength, disp);
+		struct neighbor n = neighbors.neighbors[k];
+		if (coordinate_equal(n.at, c)) {
+			if (n.tn == PIN && !n.n.pin->extracted)
+				extract_pin(en, rn, n.n.pin, strength, disp);
+			else if (n.tn == SEGMENT && !n.n.rseg->extracted)
+				extract_segment(en, rn, n.n.rseg, c, strength, disp);
+			else
+				printf("[propagate_extraction] wat\n");
 		}
 	}
 }
@@ -565,7 +601,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	rseg->extracted = 1;
 
 	// catch anything else that's here
-	propagate_extraction(en, rn, rseg, neighbors, from, initial_strength, disp);
+	propagate_extraction(en, rn, neighbors, from, initial_strength, disp);
 
 	// do the extraction from `from` to rseg->seg.end
 	int back_count = i;
@@ -587,12 +623,12 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	for (int j = 0; j < i; j++) {
 		place_movement(en, c, back_movts[j], disp);
 		c = movement_displace(c, back_movts[j]);
-		propagate_extraction(en, rn, rseg, neighbors, c, back_strengths[j], disp);
+		propagate_extraction(en, rn, neighbors, c, back_strengths[j], disp);
 	}
 
 	assert(coordinate_equal(c, rseg->seg.end));
 	place_movement(en, c, GO_NONE, disp);
-	propagate_extraction(en, rn, rseg, neighbors, rseg->seg.end, back_strengths[i-1]-1, disp);
+	propagate_extraction(en, rn, neighbors, rseg->seg.end, back_strengths[i-1]-1, disp);
 
 	// do the extraction from `from` to rseg->seg.start
 	int fwd_count = n_bt - i;
@@ -616,121 +652,13 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 		if (j != 0) // don't place `from` again
 			place_movement(en, c, fwd_movts[j], disp);
 		c = movement_displace(c, fwd_movts[j]);
-		propagate_extraction(en, rn, rseg, neighbors, c, fwd_strengths[j], disp);
+		propagate_extraction(en, rn, neighbors, c, fwd_strengths[j], disp);
 	}
 
 	assert(coordinate_equal(c, rseg->seg.start));
 	place_movement(en, rseg->seg.start, GO_NONE, disp);
-	propagate_extraction(en, rn, rseg, neighbors, rseg->seg.start, fwd_strengths[n_bt-1]-1, disp);
+	propagate_extraction(en, rn, neighbors, rseg->seg.start, fwd_strengths[n_bt-1]-1, disp);
 }
-
-/*
-// extracts a segment `rseg`, outwards from coordinate `from`, displacing into the extraction with disp
-static void extract_segment(struct extracted_net *en, struct routed_net *rn, struct routed_segment *rseg, struct coordinate from, int initial_strength, struct coordinate disp)
-{
-	int n_bt = rseg->n_backtraces;
-	if (!n_bt)
-		return;
-
-	// find the index of `from` in this segment
-	struct coordinate c = rseg->seg.end;
-	int i;
-	for (i = -1; i <= n_bt; i++) {
-		if (i >= 0 && i < n_bt)
-			c = disp_backtrace(c, rseg->bt[i]);
-		else if (i == n_bt)
-			c = rseg->seg.start;
-
-		if (coordinate_equal(c, from))
-			break;
-	}
-
-	// if i > n_bt (strictly greater than), we did not find `from`
-	// in this segment
-	if (i > n_bt) {
-		return;
-	} else if (i == -1) {
-		from = rseg->seg.end;
-		i = 0;
-	} else if (i == n_bt) {
-		from = rseg->seg.start;
-	}
-
-	struct neighbors neighbors = find_neighbors(rn, NULL, rseg);
-
-	rseg->extracted = 1;
-
-	//  n_bt         i       i+1         0
-	// start < < < from < from_p1 < < < end
-	// start < < < from > from_p1 > > > end
-        //
-
-	int strength = initial_strength;
-
-	// do the backwards extraction (from `from`+1 to rseg->seg.end)
-	if (i > -1) 
-	enum movement *bmovts = malloc(sizeof(enum movement) * i);
-	int *bstrengths = malloc(sizeof(int) * i);
-	bstrengths[0] = initial_strength - 1;
-	// set `from_p1` to the element after `from`, unless it is the start
-	struct coordinate from_p1 = coordinate_equal(from, rseg->seg.end) ? rseg->seg.end : disp_backtrace(from, invert_backtrace(rseg->bt[i])); // this is from+1
-
-	c = from_p1;
-	for (int j = 0; j < i; j++) {
-		bmovts[j] = backtrace_to_movement(invert_backtrace(rseg->bt[i-1-j]));
-		c = movement_displace(c, bmovts[j]);
-		if (has_abutting_neighbor(neighbors, c))
-			bmovts[j] |= GO_FORBID_REPEAT;
-	}
-
-	add_repeaters(bmovts, bstrengths, i);
-
-	// do backwards extract, and check for neighbors
-	for (int j = -1; j < i; j++) {
-		if (j < 0) {
-			c = from_p1;
-			strength = bstrengths[0];
-		} else {
-			c = movement_displace(c, bmovts[j]);
-			place_movement(en, c, bmovts[j], disp);
-			strength = bstrengths[i];
-		}
-
-		propagate_extraction(en, rn, rseg, neighbors, c, strength, disp);
-	}
-
-
-	// do the forward extraction (from `from` to rseg->seg.start)
-	int fi = n_bt - i;
-	enum movement *fmovts = malloc(sizeof(enum movement) * fi);
-	int *fstrengths = malloc(sizeof(int) * fi);
-	fstrengths[0] = initial_strength;
-	c = from;
-	for (int j = 0; j < fi; j++) {
-		fmovts[j] = backtrace_to_movement(rseg->bt[j + i]);
-		c = movement_displace(c, fmovts[j]);
-		if (has_abutting_neighbor(neighbors, c))
-			fmovts[j] |= GO_FORBID_REPEAT;
-	}
-
-	add_repeaters(fmovts, fstrengths, fi);
-
-	c = from;
-	for (int j = 0; j < fi; j++) {
-		place_movement(en, c, fmovts[j], disp);
-		strength = fstrengths[j];
-
-		propagate_extraction(en, rn, rseg, neighbors, c, strength, disp);
-
-		c = movement_displace(c, fmovts[j]);
-	}
-
-	// get start, end
-	propagate_extraction(en, rn, rseg, neighbors, rseg->seg.start, fstrengths[fi-1]-1, disp);
-	propagate_extraction(en, rn, rseg, neighbors, rseg->seg.end, bstrengths[i-1]-1, disp);
-
-}
-*/
 
 struct extracted_net *extract_net(struct routed_net *rn, struct coordinate disp)
 {

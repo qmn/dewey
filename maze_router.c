@@ -131,12 +131,12 @@ static void init_routing_group_with_segment(struct maze_route_instance *mri, str
 }
 
 // each routing group has an originating child or segment
-static void routed_segment_add_child(struct routed_net *rn, struct routed_segment *rseg, struct routing_group *child, struct coordinate meeting)
+static void routed_segment_add_child(struct routed_net *rn, struct routed_segment *rseg, struct routing_group *child, struct coordinate at)
 {
 	if (child->origin_type == PIN)
 		add_adjacent_pin(rn, rseg, child->origin.pin);
 	else if (child->origin_type == SEGMENT)
-		add_adjacent_segment(rn, rseg, child->origin.rseg);
+		add_adjacent_segment(rn, rseg, child->origin.rseg, at);
 }
 
 
@@ -480,8 +480,8 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 			// add, as children, the two groups formed by this segment
 			struct routed_segment *rseg = &rsh->rseg;
 			assert(rseg);
-			routed_segment_add_child(mri->rn, rseg, rg, cc);
-			routed_segment_add_child(mri->rn, rseg, visited_rg, cc);
+			routed_segment_add_child(mri->rn, rseg, rg, rseg->seg.start);
+			routed_segment_add_child(mri->rn, rseg, visited_rg, rseg->seg.end);
 
 			// create a new routing group based on this segment
 			struct routing_group *new_rg = alloc_routing_group(mri);
