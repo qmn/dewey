@@ -99,7 +99,7 @@ enum backtrace compute_backtrace(struct coordinate here, struct coordinate there
 	return BT_NONE;
 }
 
-void add_adjacent_segment(struct routed_net *rn, struct routed_segment *sega, struct routed_segment *segb)
+void add_adjacent_segment(struct routed_net *rn, struct routed_segment *sega, struct routed_segment *segb, struct coordinate at)
 {
 	assert(sega != segb);
 
@@ -107,6 +107,7 @@ void add_adjacent_segment(struct routed_net *rn, struct routed_segment *sega, st
 	rsa->parent = sega;
 	rsa->child_type = SEGMENT;
 	rsa->child.rseg = segb;
+	rsa->at = at;
 
 	rsa->next = rn->adjacencies;
 	rn->adjacencies = rsa;
@@ -118,6 +119,7 @@ void add_adjacent_pin(struct routed_net *rn, struct routed_segment *seg, struct 
 	rsa->parent = seg;
 	rsa->child_type = PIN;
 	rsa->child.pin = pin;
+	rsa->at = extend_pin(pin);
 
 	rsa->next = rn->adjacencies;
 	rn->adjacencies = rsa;

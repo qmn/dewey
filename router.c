@@ -695,7 +695,7 @@ void print_rsa(struct routed_net *rn)
 	for (struct routed_segment_adjacency *rsa = rn->adjacencies; rsa; rsa = rsa->next, count++) {
 		printf("[rsa] %d: segment {(%d, %d, %d) -> (%d, %d, %d)} adjacent to ", count, PRINT_COORD(rsa->parent->seg.start), PRINT_COORD(rsa->parent->seg.end));
 		if (rsa->child_type == SEGMENT) {
-			printf("segment {(%d, %d, %d) -> (%d, %d, %d)}\n", PRINT_COORD(rsa->child.rseg->seg.start), PRINT_COORD(rsa->child.rseg->seg.end));
+			printf("segment {(%d, %d, %d) -> (%d, %d, %d)} at (%d, %d, %d)\n", PRINT_COORD(rsa->child.rseg->seg.start), PRINT_COORD(rsa->child.rseg->seg.end), PRINT_COORD(rsa->at));
 		} else if (rsa->child_type == PIN) {
 			printf("pin at (%d, %d, %d) (%c)\n", PRINT_COORD(extend_pin(rsa->child.pin)), rsa->child.pin->cell_pin->direction == OUTPUT ? 'o' : 'i');
 		}

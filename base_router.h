@@ -57,15 +57,18 @@ struct routed_segment_head {
 // a routed_segment_adjacency is a linked list of
 // adjacencies between segments and other segments or pins
 // b_type determines what's contained in the union
+enum rsa_type { SEGMENT, PIN };
 struct routed_segment_adjacency {
 	struct routed_segment_adjacency *next;
 
 	struct routed_segment *parent;
-	enum { SEGMENT, PIN } child_type;
+	enum rsa_type child_type;
 	union {
 		struct routed_segment *rseg;
 		struct placed_pin *pin;
 	} child;
+
+	struct coordinate at;
 };
 
 struct routed_net {
@@ -89,7 +92,7 @@ enum backtrace invert_backtrace(enum backtrace);
 void invert_backtrace_sequence(enum backtrace *, int);
 enum backtrace compute_backtrace(struct coordinate, struct coordinate);
 
-void add_adjacent_segment(struct routed_net *, struct routed_segment *, struct routed_segment *);
+void add_adjacent_segment(struct routed_net *, struct routed_segment *, struct routed_segment *, struct coordinate);
 void add_adjacent_pin(struct routed_net *, struct routed_segment *, struct placed_pin *);
 
 struct routed_segment *find_parent(struct routed_net *rn, struct placed_pin *p, struct routed_segment *rseg);

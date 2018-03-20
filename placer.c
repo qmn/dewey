@@ -227,6 +227,11 @@ static enum placement_method generate(struct cell_placements *placements,
 			cell_a->placement.x += dx;
 		}
 
+#if 1 // cheating
+		cell_a->placement.x = min(cell_a->placement.x, 1000);
+		cell_a->placement.z = min(cell_a->placement.z, 1000);
+#endif
+
 		return DISPLACE;
 	} else {
 		/* reorient */

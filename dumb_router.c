@@ -122,13 +122,13 @@ void dumb_mst_route(struct routed_net *rn)
 
 			struct routed_segment *xp_rseg = find_parent(rn, x->pin, NULL);
 			if (xp_rseg)
-				add_adjacent_segment(rn, &rsh->rseg, xp_rseg);
+				add_adjacent_segment(rn, &rsh->rseg, xp_rseg, seg.start);
 			else
 				add_adjacent_pin(rn, &rsh->rseg, x->pin);
 
 			struct routed_segment *yp_rseg = find_parent(rn, y->pin, NULL);
 			if (yp_rseg)
-				add_adjacent_segment(rn, &rsh->rseg, yp_rseg);
+				add_adjacent_segment(rn, &rsh->rseg, yp_rseg, seg.end);
 			else
 				add_adjacent_pin(rn, &rsh->rseg, y->pin);
 
