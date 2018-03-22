@@ -27,6 +27,34 @@ struct coordinate disp_backtrace(struct coordinate c, enum backtrace b)
 	return c;
 }
 
+struct coordinate disp_movement(struct coordinate c, enum movement m)
+{
+	switch (m & (MV_CARDINAL_MASK | MV_VERTICAL_MASK)) {
+	case GO_WEST:
+		c.x--;
+		break;
+	case GO_SOUTH:
+		c.z++;
+		break;
+	case GO_EAST:
+		c.x++;
+		break;
+	case GO_NORTH:
+		c.z--;
+		break;
+	case GO_DOWN:
+		c.y -= 3;
+		break;
+	case GO_UP:
+		c.y += 3;
+		break;
+	default:
+		break;
+	}
+	return c;
+}
+
+
 enum backtrace invert_backtrace(enum backtrace b)
 {
 	switch (b) {
@@ -137,4 +165,61 @@ struct routed_segment *find_parent(struct routed_net *rn, struct placed_pin *p, 
 	}
 
 	return rseg;
+}
+
+enum movement backtrace_to_movement(enum backtrace bt)
+{
+	switch (bt) {
+	case BT_WEST:
+		return GO_EAST;
+	case BT_SOUTH:
+		return GO_NORTH;
+	case BT_EAST:
+		return GO_WEST;
+	case BT_NORTH:
+		return GO_SOUTH;
+	case BT_DOWN:
+		return GO_UP;
+	case BT_UP:
+		return GO_DOWN;
+	default:
+		return GO_NONE;
+	}
+}
+
+enum backtrace movement_to_backtrace(enum movement mv)
+{
+	switch (mv & (MV_CARDINAL_MASK | MV_VERTICAL_MASK)) {
+	case GO_WEST: return BT_EAST;
+	case GO_SOUTH: return BT_NORTH;
+	case GO_EAST: return BT_WEST;
+	case GO_NORTH: return BT_SOUTH;
+	case GO_UP: return BT_DOWN;
+	case GO_DOWN: return BT_UP;
+	default: return BT_NONE;
+	}
+}
+
+// identity conversion, essentially
+enum movement backtrace_IS_movement(enum backtrace bt)
+{
+	switch (bt) {
+	case BT_WEST: return GO_WEST;
+	case BT_SOUTH: return GO_SOUTH;
+	case BT_EAST: return GO_EAST;
+	case BT_NORTH: return GO_NORTH;
+	case BT_DOWN: return GO_DOWN;
+	case BT_UP: return GO_UP;
+	default: return GO_NONE;
+	}
+}
+
+int movement_cardinal(enum movement m)
+{
+	return (m & MV_CARDINAL_MASK);
+}
+
+int movement_vertical(enum movement m)
+{
+	return (m & MV_VERTICAL_MASK);
 }

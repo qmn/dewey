@@ -389,9 +389,12 @@ void free_mri(struct maze_route_instance mri)
 // visit coordinate cc from coordinate c (of routing group rg), by using
 // backtrace bt, merging groups as needed; if it merged, return 1, otherwise
 // return 0
-static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, struct coordinate c, struct coordinate cc, enum backtrace bt)
+static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, struct coordinate c, enum movement mv)
 {
 	struct usage_matrix *m = mri->m;
+
+	enum backtrace bt = movement_to_backtrace(mv);
+	struct coordinate cc = disp_movement(c, mv);
 
 	if (!in_usage_bounds(m, cc))
 		return 0;
@@ -515,9 +518,8 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	return 0;
 }
 
-static enum backtrace backtraces[] = {BT_WEST, BT_NORTH, BT_EAST, BT_SOUTH, BT_DOWN, BT_UP};
-static struct coordinate movement_offsets[] = {{0, 0, 1}, {0, 1, 0}, {0, 0, -1}, {0, -1, 0}, {3, 0, 0}, {-3, 0, 0}};
-static int n_movements = sizeof(movement_offsets) / sizeof(struct coordinate);
+static enum movement movts[] = {GO_WEST, GO_NORTH, GO_EAST, GO_SOUTH, GO_DOWN, GO_UP};
+static int n_movts = sizeof(movts) / sizeof(enum movement);
 
 // see silk.md for a description of this algorithm
 // accepts a routed_net object, with any combination of previously-routed
@@ -543,11 +545,8 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 		assert(in_usage_bounds(mri.m, c));
 
 		// for each of the possible movements, expand in that direction
-		for (int movt = 0; movt < n_movements; movt++) {
-			struct coordinate cc = coordinate_add(c, movement_offsets[movt]);
-
-			int merge_occurred = mri_visit(&mri, rg, c, cc, backtraces[movt]);
-
+		for (int i = 0; i < n_movts; i++) {
+			int merge_occurred = mri_visit(&mri, rg, c, movts[i]);
 			if (merge_occurred)
 				break;
 		}

@@ -24,6 +24,27 @@ enum backtrace {
 #define is_vertical(bt) (bt & BT_VERTICAL_MASK)
 #define is_cardinal(bt) (bt & BT_CARDINAL_MASK)
 
+enum movement {
+	GO_NONE   = 0,
+	GO_WEST   = 1 << 0,
+	GO_SOUTH  = 1 << 1,
+	GO_EAST   = 1 << 2,
+	GO_NORTH  = 1 << 3,
+	GO_DOWN   = 1 << 4,
+	GO_UP     = 1 << 5,
+	GO_REPEAT = 1 << 6,
+	GO_FORBID_REPEAT = 1 << 7
+};
+
+#define MV_VERTICAL_MASK (GO_UP | GO_DOWN)
+#define MV_CARDINAL_MASK (GO_WEST | GO_SOUTH | GO_EAST | GO_NORTH)
+
+enum movement backtrace_to_movement(enum backtrace);
+enum movement backtrace_IS_movement(enum backtrace);
+enum backtrace movement_to_backtrace(enum movement);
+int movement_cardinal(enum movement);
+int movement_vertical(enum movement);
+
 struct cost_coord {
 	unsigned int cost;
 	struct coordinate coord;
@@ -88,6 +109,7 @@ struct routed_net {
 };
 
 struct coordinate disp_backtrace(struct coordinate, enum backtrace);
+struct coordinate disp_movement(struct coordinate, enum movement);
 enum backtrace invert_backtrace(enum backtrace);
 void invert_backtrace_sequence(enum backtrace *, int);
 enum backtrace compute_backtrace(struct coordinate, struct coordinate);

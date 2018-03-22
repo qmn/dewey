@@ -118,65 +118,6 @@ static void reverse_segment(struct routed_segment *rseg)
 	invert_backtrace_sequence(rseg->bt, rseg->n_backtraces);
 }
 
-enum movement {
-	GO_NONE   = 0,
-	GO_WEST   = 1 << 0,
-	GO_SOUTH  = 1 << 1,
-	GO_EAST   = 1 << 2,
-	GO_NORTH  = 1 << 3,
-	GO_DOWN   = 1 << 4,
-	GO_UP     = 1 << 5,
-	GO_REPEAT = 1 << 6,
-	GO_FORBID_REPEAT = 1 << 7
-};
-
-#define MV_VERTICAL_MASK (GO_UP | GO_DOWN)
-#define MV_CARDINAL_MASK (GO_WEST | GO_SOUTH | GO_EAST | GO_NORTH)
-
-static enum movement backtrace_to_movement(enum backtrace bt)
-{
-	switch (bt) {
-	case BT_WEST:
-		return GO_EAST;
-	case BT_SOUTH:
-		return GO_NORTH;
-	case BT_EAST:
-		return GO_WEST;
-	case BT_NORTH:
-		return GO_SOUTH;
-	case BT_DOWN:
-		return GO_UP;
-	case BT_UP:
-		return GO_DOWN;
-	default:
-		return GO_NONE;
-	}
-}
-
-// identity conversion, essentially
-static enum movement backtrace_IS_movement(enum backtrace bt)
-{
-	switch (bt) {
-	case BT_WEST: return GO_WEST;
-	case BT_SOUTH: return GO_SOUTH;
-	case BT_EAST: return GO_EAST;
-	case BT_NORTH: return GO_NORTH;
-	case BT_DOWN: return GO_DOWN;
-	case BT_UP: return GO_UP;
-	default: return GO_NONE;
-	}
-}
-
-static int movement_cardinal(enum movement m)
-{
-	return (m & MV_CARDINAL_MASK);
-}
-
-static int movement_vertical(enum movement m)
-{
-	return (m & MV_VERTICAL_MASK);
-}
-
 static data_t repeater_data(enum movement m)
 {
 	switch (m & MV_CARDINAL_MASK) {
@@ -252,33 +193,6 @@ static void place_movement(struct extracted_net *en, struct coordinate c, enum m
 		extracted_net_append(en, c, AIR, 0); // 0
 		extracted_net_append(en, c, base_block(c), 0); // -1
 	}
-}
-
-static struct coordinate movement_displace(struct coordinate c, enum movement m)
-{
-	switch (m & (MV_CARDINAL_MASK | MV_VERTICAL_MASK)) {
-	case GO_WEST:
-		c.x--;
-		break;
-	case GO_SOUTH:
-		c.z++;
-		break;
-	case GO_EAST:
-		c.x++;
-		break;
-	case GO_NORTH:
-		c.z--;
-		break;
-	case GO_DOWN:
-		c.y -= 3;
-		break;
-	case GO_UP:
-		c.y += 3;
-		break;
-	default:
-		break;
-	}
-	return c;
 }
 
 // determines whether this segment is repeatable:
@@ -618,7 +532,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 		back_movts[j] = backtrace_to_movement(rseg->bt[i-j-1]);
 		if (has_abutting_neighbor(neighbors, c))
 			back_movts[j] |= GO_FORBID_REPEAT;
-		c = movement_displace(c, back_movts[j]);
+		c = disp_movement(c, back_movts[j]);
 	}
 
 	add_repeaters(back_movts, back_strengths, i);
@@ -626,7 +540,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	c = from;
 	for (int j = 0; j < i; j++) {
 		place_movement(en, c, back_movts[j], disp);
-		c = movement_displace(c, back_movts[j]);
+		c = disp_movement(c, back_movts[j]);
 		propagate_extraction(en, rn, neighbors, c, back_strengths[j], disp);
 	}
 
@@ -646,7 +560,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 		fwd_movts[j] = backtrace_IS_movement(rseg->bt[j+i]);
 		if (has_abutting_neighbor(neighbors, c))
 			fwd_movts[j] |= GO_FORBID_REPEAT;
-		c = movement_displace(c, fwd_movts[j]);
+		c = disp_movement(c, fwd_movts[j]);
 	}
 
 	add_repeaters(fwd_movts, fwd_strengths, fwd_count);
@@ -655,7 +569,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 	for (int j = 0; j < fwd_count; j++) {
 		if (j != 0) // don't place `from` again
 			place_movement(en, c, fwd_movts[j], disp);
-		c = movement_displace(c, fwd_movts[j]);
+		c = disp_movement(c, fwd_movts[j]);
 		propagate_extraction(en, rn, neighbors, c, fwd_strengths[j], disp);
 	}
 
