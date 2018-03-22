@@ -105,7 +105,9 @@ static void init_routing_group_with_pin(struct maze_route_instance *mri, struct 
 	rg->cost[usage_idx(mri->m, start)] = 0;
 	struct cost_coord start_cc = {0, start};
 	cost_coord_heap_insert(rg->heap, start_cc);
-	mri->visited[usage_idx(mri->m, extend_pin(p))] = rg;
+	int i = usage_idx(mri->m, extend_pin(p));
+	// assert(!mri->visited[i] || routing_group_find(mri->visited[i]) == routing_group_find(rg));
+	mri->visited[i] = rg;
 
 	rg->origin_type = PIN;
 	rg->origin.pin = p;
@@ -124,6 +126,11 @@ static void init_routing_group_with_segment(struct maze_route_instance *mri, str
 		rg->cost[usage_idx(mri->m, c)] = 0;
 		rg->bt[usage_idx(mri->m, c)] = BT_START;
 		mri->visited[usage_idx(mri->m, c)] = rg;
+
+		int i = usage_idx(mri->m, c);
+
+		// assert(!mri->visited[i] || routing_group_find(mri->visited[i]) == routing_group_find(rg));
+		mri->visited[i] = rg;
 	}
 
 	rg->origin_type = SEGMENT;
@@ -386,6 +393,64 @@ void free_mri(struct maze_route_instance mri)
 	free(mri.visited);
 }
 
+static int movement_cost(struct maze_route_instance *mri, struct routing_group *rg, struct coordinate c, enum movement mv)
+{
+	enum movement prev_mv = backtrace_to_movement(rg->bt[usage_idx(mri->m, c)]);
+
+	// dissuade turns
+	int turn_cost = (movement_cardinal(mv) && is_cardinal(prev_mv) && prev_mv != mv) ? 5 : 0;
+	int via_cost = movement_vertical(mv) ? 20 : 0;
+	int y_cost = c.y / 2;
+
+	// dissuade going too close to bounds
+	int edge_margin = 2;
+	int edge_cost = (c.x < edge_margin || c.x > mri->m->d.x - edge_margin || c.z < edge_margin || c.z > mri->m->d.z - edge_margin) ? 4 : 0;
+
+	int preferred_direction_cost = 0;
+	if ((c.y == 0 || c.y == 6) && (mv & (GO_NORTH | GO_SOUTH)))
+		preferred_direction_cost = 10;
+	else if (c.y == 3 && (mv & (GO_EAST | GO_WEST)))
+		preferred_direction_cost = 10;
+
+	int movement_cost = 1 + turn_cost + via_cost + y_cost + edge_cost + preferred_direction_cost;
+
+	return movement_cost;
+}
+
+#define within(a, b, d) (abs(a.z - b.z) <= d || abs(a.x - b.x) <= d)
+
+// will violate some rules:
+// 1. there cannot be a vertical movement anywhere within a 3x3 grid centered on the merge point
+// 2. there cannot be other blocks within a 3x3 grid centered on the merge point
+static int violates_merge_isolation(struct maze_route_instance *mri, struct routing_group *rg, struct routing_group *v_rg, struct coordinate c)
+{
+	struct usage_matrix *m = mri->m;
+
+	struct coordinate a = c;
+	for (enum backtrace a_bt = rg->bt[usage_idx(m, a)]; a_bt != BT_START; a = disp_backtrace(a, a_bt), a_bt = rg->bt[usage_idx(m, a)]) {
+		int dy = abs(c.y - a.y), dz = abs(c.z - a.z), dx = abs(c.x - a.x);
+		if (dy != 0 || dz > 1 || dx > 1)
+			continue;
+
+		// dy == 0, dz and dx <= 1
+		if (is_vertical(a_bt) || (dz && dx))
+			return 1;
+	}
+
+	struct coordinate b = c;
+	for (enum backtrace b_bt = v_rg->bt[usage_idx(m, b)]; b_bt != BT_START; b = disp_backtrace(b, b_bt), b_bt = v_rg->bt[usage_idx(m, b)]) {
+		int dy = abs(c.y - b.y), dz = abs(c.z - b.z), dx = abs(c.x - b.x);
+		if (dy != 0 || dz > 1 || dx > 1)
+			continue;
+
+		// dy == 0, dz and dx <= 1
+		if (is_vertical(b_bt) || (dz && dx))
+			return 1;
+	}
+
+	return 0;
+}
+
 // visit coordinate cc from coordinate c (of routing group rg), by using
 // backtrace bt, merging groups as needed; if it merged, return 1, otherwise
 // return 0
@@ -423,8 +488,8 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 		violation++;
 
 	// if we are adjacent to a via we did not just come from, it is a violation
-	if (is_cardinal(bt)) {
-		struct coordinate via_checks[4] = {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+	struct coordinate via_checks[4] = {{0, -1, 0}, {0, 1, 0}, {0, 0, -1}, {0, 0, 1}};
+	if (movement_cardinal(mv)) {
 		for (int i = 0; i < 4; i++) {
 			struct coordinate ccc = coordinate_add(cc, via_checks[i]);
 			if (in_usage_bounds(m, ccc) && is_vertical(rg->bt[usage_idx(m, ccc)]) && !coordinate_equal(ccc, c))
@@ -432,47 +497,51 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 		}
 	}
 
-	// dissuade turns
-	int turn_cost = (is_cardinal(bt) && is_cardinal(my_bt) && bt != my_bt) ? 5 : 0;
-	int via_cost = is_vertical(bt) ? 20 : 0;
-	int y_cost = c.y / 2;
+	// disallow vertical movements adjacent to other nets
+	if (movement_vertical(mv)) {
+		for (int i = 0; i < 4; i++) {
+			struct coordinate ccc = coordinate_add(cc, via_checks[i]);
+			if (in_usage_bounds(m, ccc))
+				for (int j = 0; j < mri->n_groups; j++)
+					if (mri->rgs[j]->bt[usage_idx(m, ccc)] == BT_START)
+						violation++;
+		}
+	}
 
-	// dissuade going too close to bounds
-	int edge_margin = 2;
-	int edge_cost = (cc.x < edge_margin || cc.x > m->d.x - edge_margin || cc.z < edge_margin || cc.z > m->d.z - edge_margin) ? 4 : 0;
-
-	int preferred_direction_cost = 0;
-	if ((cc.y == 0 || cc.y == 6) && (bt == BT_NORTH || bt == BT_SOUTH))
-		preferred_direction_cost = 10;
-	else if (cc.y == 3 && (bt == BT_WEST || bt == BT_EAST))
-		preferred_direction_cost = 10;
-
-	int movement_cost = 1 + turn_cost + via_cost + y_cost + edge_cost + preferred_direction_cost;
+	// prohibit vias on odd x, z
+/*
+	if (is_vertical(bt) && (c.x & 1 || c.z & 1))
+		violation++;
+*/
 
 	if (usage_matrix_violated(m, cc))
 		violation++;
 
 	int violation_cost = 1000;
 
-	unsigned int cost_delta = movement_cost + (violation ? violation_cost : 0);
+	int mv_cost = movement_cost(mri, rg, c, mv);
+
+	unsigned int cost_delta = mv_cost + (violation ? violation_cost : 0);
 	unsigned int new_cost = rg->cost[usage_idx(m, c)] + cost_delta;
+
+	// if this location has a lower score, update the cost and backtrace
+	if (new_cost < rg->cost[usage_idx(m, cc)]) {
+		rg->cost[usage_idx(m, cc)] = new_cost;
+		rg->bt[usage_idx(m, cc)] = bt;
+	}
 
 	// if the lowest min-heap element expands into another group that is
 	// "independent" (i.e., it is its own parent)
 	struct routing_group *visited_rg = mri->visited[usage_idx(m, cc)];
-	if (visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
-		// we shouldn't expand vertically into another
-		// net, but we won't overwrite the backtraces.
-		if (is_vertical(bt))
-			return 0;
+	if (!violation && visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
+		int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc);
 
-		// if these groups happened to be adjacent already, don't create a new segment;
-		// instead, merge the adjacent group into this one and keep looking
 		if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
-			visited_rg->parent = rg;
-			visited_rg = rg;
+			visited_rg->parent = rg->parent;
 			mri->remaining_groups--;
-		} else {
+			return 1;
+
+		} else if (!merge_violation) {
 			// create a new segment arising from the merging of these two routing groups
 			struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
 			rsh->next = NULL;
@@ -508,12 +577,7 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 		cost_coord_heap_insert(rg->heap, next);
 	}
 
-	// if this location has a lower score, update the cost and backtrace
 	mri->visited[usage_idx(m, cc)] = rg;
-	if (new_cost < rg->cost[usage_idx(m, cc)]) {
-		rg->cost[usage_idx(m, cc)] = new_cost;
-		rg->bt[usage_idx(m, cc)] = bt;
-	}
 
 	return 0;
 }

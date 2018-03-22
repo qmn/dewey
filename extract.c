@@ -539,7 +539,8 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 
 	c = from;
 	for (int j = 0; j < i; j++) {
-		place_movement(en, c, back_movts[j], disp);
+		if (j == 0 || !movement_vertical(back_movts[j-1]))
+			place_movement(en, c, back_movts[j], disp);
 		c = disp_movement(c, back_movts[j]);
 		propagate_extraction(en, rn, neighbors, c, back_strengths[j], disp);
 	}
@@ -567,7 +568,7 @@ static void extract_segment(struct extracted_net *en, struct routed_net *rn, str
 
 	c = from;
 	for (int j = 0; j < fwd_count; j++) {
-		if (j != 0) // don't place `from` again
+		if (j != 0 && !movement_vertical(fwd_movts[j-1])) // don't place `from` again
 			place_movement(en, c, fwd_movts[j], disp);
 		c = disp_movement(c, fwd_movts[j]);
 		propagate_extraction(en, rn, neighbors, c, fwd_strengths[j], disp);
