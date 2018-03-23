@@ -1,0 +1,160 @@
+<html>
+	<head>
+		<title>Dewey visualization</title>
+		<script src="https://d3js.org/d3.v5.js"></script>
+		<link rel="stylesheet" href="https://unpkg.com/tachyons@4.9.1/css/tachyons.min.css"/>
+		<script src="output.json"></script>
+	</head>
+	<body>
+<style type="text/css">
+body {
+  font-family: "Helvetica Neue", "Helvetica", sans-serif;
+}
+
+#vis td {
+  height: 16px;
+  width: 16px;
+  padding: 0;
+  box-sizing: border-box;
+  /* text-align: center; */
+  vertical-align: top;
+}
+
+#vis td > img {
+  display: none;
+  position: absolute;
+}
+
+#vis {
+  table-layout: fixed;
+  border-collapse: collapse;
+  font-family: "Inconsolata", monospace;
+  font-size: 8pt;
+}
+
+#main {
+  margin: 2em;
+}
+</style>
+
+<!-- actual html -->
+		<h1>Dewey visualization</h1>
+		<div id="main">
+			<table id="vis"></table>
+      <p>Y: <select id="y_sel"></select></p>
+
+<!-- script -->
+			<script>
+// initialize vis table
+var vis = document.getElementById("vis");
+var d = extraction.dimensions;
+var dy = d[0], dz = d[1], dx = d[2];
+for (var z = 0; z < dz; z++) {
+  var tr = document.createElement("tr");
+  vis.appendChild(tr);
+  for (var x = 0; x < dx; x++) {
+    var td = document.createElement("td");
+    tr.appendChild(td);
+    var img = document.createElement("img");
+    img.setAttribute("src", "textures_0.png");
+    td.appendChild(img);
+  }
+}
+
+// draw routings
+var cp = extraction.placements;
+var rt = extraction.routings;
+
+function draw(z, x, y, b)
+{
+	var img_idx = [[1, 20, 9],    // stone
+	[55, 18, 13],
+	[76, 19, 2],
+	[75, 19, 3],
+	[94, 19, 6],
+	[93, 1, 6],
+	[150, 2, 6],
+	[149, 1, 6],
+	[152, 18, 10],
+	[5, 16, 4],
+	[69, 10, 13],
+	[123, 18, 15],
+	[29, 11, 15], // piston bottom
+	[165, 20, 4], // slime
+	[3, 8, 6]];       // dirt
+
+  var img = vis.children[z].children[x].children[0];
+  img.style.display = "none";
+
+  if (b == 0)
+    return;
+
+  for (var i = 0; i < img_idx.length; i++) {
+    var j = img_idx[i];
+    if (j[0] == b) {
+      var x = j[1] * 16, y = j[2] * 16;
+      var x2 = img.width - (x + 16); y2 = img.height - (y + 16);
+      img.style.clipPath = "inset(" + y + "px " + x2 + "px " + y2 + "px " + x + "px)";
+      img.style.marginLeft = -x;
+      img.style.marginTop = -y;
+      // console.log(y + ", " + x + ": " + img.style.clipPath);
+      img.style.display = "inline";
+    }
+  }
+}
+
+function clear()
+{
+  for (var z = 0; z < dz; z++)
+    for (var x = 0; x < dx; x++)
+      draw(z, x, 0, 0);
+}
+
+function draw_to(y)
+{
+  for (var yy = 0; yy <= y; yy++) {
+    for (var i = 0; i < cp.length; i++) {
+      var p = cp[i];
+      for (var j = 0; j < p.blocks.length; j++) {
+        var q = p.blocks[j];
+        if (q[0] == yy)
+          draw(q[1], q[2], q[0], q[3]);
+      }
+    }
+
+    for (var i = 0; i < rt.length; i++) {
+      var rn = rt[i];
+      for (var j = 0; j < rn.blocks.length; j++) {
+        var q = rn.blocks[j];
+        if (q[0] == yy)
+          draw(q[1], q[2], q[0], q[3]);
+      }
+    }
+  }
+}
+
+var y_sel = document.getElementById("y_sel");
+for (var yy = 0; yy < dy; yy++) {
+  var y_opt = document.createElement("option");
+  y_opt.setAttribute("value", ""+yy);
+  y_opt.innerHTML = ""+yy;
+  if (yy == dy-1)
+    y_opt.selected = true;
+  y_sel.appendChild(y_opt);
+}
+
+function change_y()
+{
+  console.log("aaa");
+  var yy = 0 + y_sel.value;
+  clear();
+  draw_to(yy);
+}
+
+y_sel.addEventListener("change", change_y);
+
+draw_to(dy-1);
+			</script>
+		</div>
+	</body>
+</html>

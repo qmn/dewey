@@ -169,6 +169,9 @@ int main(int argc, char **argv)
 
 	vis_png_draw_placements(output_dir, blif, new_placements, routings);
 
+	FILE *output_json = fopen("output.json", "w");
+	vis_json(output_json, blif, new_placements, routings);
+
         free_blif(blif);
 	free_cell_library(cl);
 

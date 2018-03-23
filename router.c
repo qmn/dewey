@@ -146,33 +146,6 @@ void routings_displace(struct routings *rt, struct coordinate disp)
 	}
 }
 
-struct dimensions compute_routings_dimensions(struct routings *rt)
-{
-	struct coordinate dbr = {0, 0, 0}, dtl = {0, 0, 0}; // bottom-right and top-left
-	for (net_t i = 1; i < rt->n_routed_nets + 1; i++) {
-		struct routed_net rn = rt->routed_nets[i];
-		for (struct routed_segment_head *rsh = rn.routed_segments; rsh; rsh = rsh->next) {
-			struct routed_segment rseg = rsh->rseg;
-			struct coordinate c = rseg.seg.end;
-			for (int k = 0; k < rseg.n_backtraces; k++) {
-				c = disp_backtrace(c, rseg.bt[k]);
-				dbr = coordinate_piecewise_max(dbr, c);
-				dtl = coordinate_piecewise_min(dtl, c);
-			}
-
-			dbr = coordinate_piecewise_max(dbr, rseg.seg.start);
-			dbr = coordinate_piecewise_max(dbr, rseg.seg.end);
-			dtl = coordinate_piecewise_min(dtl, rseg.seg.start);
-			dtl = coordinate_piecewise_min(dtl, rseg.seg.end);
-		}
-	}
-
-	/* the dimension is the highest coordinate , plus 1 on each */
-	struct dimensions dd = {dbr.y - dtl.y + 1, dbr.z - dtl.z + 1, dbr.x - dtl.x + 1};
-
-	return dd;
-}
-
 int segment_routed(struct routed_segment *rseg)
 {
 	struct segment seg = rseg->seg;

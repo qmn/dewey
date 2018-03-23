@@ -108,6 +108,8 @@ struct routed_net {
 	struct routed_segment_adjacency *adjacencies;
 };
 
+struct dimensions compute_routings_dimensions(struct routings *);
+
 struct coordinate disp_backtrace(struct coordinate, enum backtrace);
 struct coordinate disp_movement(struct coordinate, enum movement);
 enum backtrace invert_backtrace(enum backtrace);

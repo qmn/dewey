@@ -86,16 +86,6 @@ static int adjacent(struct coordinate c1, struct coordinate c2)
 }
 */
 
-struct extracted_net {
-	net_t net;
-
-	int n;
-	int sz;
-	struct coordinate *c;
-	block_t *b;
-	data_t *d;
-};
-
 // extend the extracted net to fit new_size elements
 static void extracted_net_append(struct extracted_net *en, struct coordinate c, block_t b, data_t d)
 {
