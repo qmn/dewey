@@ -113,10 +113,19 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 
 #define ARBITRARY_LIMIT 1000
 
-void vis_png_draw_placements(char *output_dir, struct blif *blif, struct cell_placements *cp, struct routings *rt)
+#define min(x, y) (x <= y ? x : y)
+
+void vis_png_draw_placements(char *output_dir, struct blif *blif, struct cell_placements *cp, struct routings *rt, int layer)
 {
 	struct extraction *e = extract(cp, rt);
 	struct dimensions d = e->dimensions;
+
+	switch (layer) {
+	case 0: d.y = min(2, d.y); break;
+	case 1: d.y = min(5, d.y); break;
+	case 2: d.y = min(10, d.y); break;
+	default: break;
+	}
 
 	int img_width = d.x * 16;
 	int img_height = d.z * 16;
@@ -181,7 +190,8 @@ void vis_png_draw_placements(char *output_dir, struct blif *blif, struct cell_pl
 
 	free_textures_0(textures_0);
 
-	char *bn = "placement.png";
+	char *bn;
+	asprintf(&bn, "layer%d.png", layer);
 	char fn[MAXPATHLEN];
 	strncpy(fn, output_dir, MAXPATHLEN);
 	strncat(fn, bn, MAXPATHLEN-strnlen(bn, MAXPATHLEN));

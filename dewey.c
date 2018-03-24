@@ -136,7 +136,7 @@ int main(int argc, char **argv)
 	// struct cell_placements *new_placements = initial_placement;
 	// print_cell_placements(new_placements);
 
-	vis_png_draw_placements(output_dir, blif, new_placements, NULL);
+	vis_png_draw_placements(output_dir, blif, new_placements, NULL, 0);
 
 	FILE *pf = fopen("placements.yaml", "w");
 	serialize_placements(pf, new_placements, blif);
@@ -167,9 +167,13 @@ int main(int argc, char **argv)
 	serialize_routings(rf, routings, blif);
 	fclose(rf);
 
-	vis_png_draw_placements(output_dir, blif, new_placements, routings);
+	vis_png_draw_placements(output_dir, blif, new_placements, routings, 0);
+	vis_png_draw_placements(output_dir, blif, new_placements, routings, 1);
+	vis_png_draw_placements(output_dir, blif, new_placements, routings, 2);
 
 	FILE *output_json = fopen("output.json", "w");
+	vis_json(output_json, blif, new_placements, routings);
+	vis_json(output_json, blif, new_placements, routings);
 	vis_json(output_json, blif, new_placements, routings);
 
         free_blif(blif);
