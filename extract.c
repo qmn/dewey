@@ -189,7 +189,7 @@ static void place_movement(struct extracted_net *en, struct coordinate c, enum m
 // it must be a cardinal movement going twice in the same direction
 static int is_repeatable(enum movement *m, int i, int n)
 {
-	if (n < 3 || i < 1)
+	if (n < 2 || i < 1)
 		return 0;
 
 	return movement_cardinal(m[i]) && m[i] == m[i-1] && !(m[i] & GO_FORBID_REPEAT);

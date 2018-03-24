@@ -113,6 +113,33 @@ static void init_routing_group_with_pin(struct maze_route_instance *mri, struct 
 	rg->origin.pin = p;
 }
 
+static int within_a_vertical(enum backtrace *bt, int i, int n)
+{
+	for (int j = max(i - 1, 0); j < min(i+2, n); j++)
+		if (is_vertical(bt[j]))
+			return 1;
+
+	return 0;
+}
+
+// mark the usage matrix in a 3x3 zone centered on c to prevent subsequent routings
+static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
+{
+	int y1 = max(c.y, 0), y2 = min(c.y, m->d.y - 1);
+	int z1 = max(c.z - 1, 0), z2 = min(c.z + 1, m->d.z - 1);
+	int x1 = max(c.x - 1, 0), x2 = min(c.x + 1, m->d.x - 1);
+
+	for (int y = y1; y <= y2; y++) {
+		for (int z = z1; z <= z2; z++) {
+			for (int x = x1; x <= x2; x++) {
+				struct coordinate cc = {y, z, x};
+
+				usage_mark(m, cc);
+			}
+		}
+	}
+}
+
 // initializes a routing group with a segment
 static void init_routing_group_with_segment(struct maze_route_instance *mri, struct routing_group *rg, struct routed_segment *rseg)
 {
@@ -121,16 +148,19 @@ static void init_routing_group_with_segment(struct maze_route_instance *mri, str
 		c = disp_backtrace(c, rseg->bt[i]);
 		assert(in_usage_bounds(mri->m, c));
 
-		struct cost_coord next = {0, c};
-		cost_coord_heap_insert(rg->heap, next);
-		rg->cost[usage_idx(mri->m, c)] = 0;
-		rg->bt[usage_idx(mri->m, c)] = BT_START;
-		mri->visited[usage_idx(mri->m, c)] = rg;
-
-		int i = usage_idx(mri->m, c);
+		if (!within_a_vertical(rseg->bt, i, rseg->n_backtraces)) {
+			struct cost_coord next = {0, c};
+			cost_coord_heap_insert(rg->heap, next);
+			rg->cost[usage_idx(mri->m, c)] = 0;
+			rg->bt[usage_idx(mri->m, c)] = BT_START;
+			mri->visited[usage_idx(mri->m, c)] = rg;
+		} else if (is_vertical(rseg->bt[i]) || (i > 0 && (is_vertical(rseg->bt[i-1])))) {
+			mark_via_violation_zone(mri->m, c);
+		} else {
+			usage_mark(mri->m, c);
+		}
 
 		// assert(!mri->visited[i] || routing_group_find(mri->visited[i]) == routing_group_find(rg));
-		mri->visited[i] = rg;
 	}
 
 	rg->origin_type = SEGMENT;
@@ -169,24 +199,6 @@ static struct routing_group *find_smallest_heap(struct routing_group **rgs, unsi
 	assert(smallest);
 
 	return smallest;
-}
-
-// mark the usage matrix in a 3x3 zone centered on c to prevent subsequent routings
-static void mark_via_violation_zone(struct usage_matrix *m, struct coordinate c)
-{
-	int y1 = max(c.y, 0), y2 = min(c.y, m->d.y - 1);
-	int z1 = max(c.z - 1, 0), z2 = min(c.z + 1, m->d.z - 1);
-	int x1 = max(c.x - 1, 0), x2 = min(c.x + 1, m->d.x - 1);
-
-	for (int y = y1; y <= y2; y++) {
-		for (int z = z1; z <= z2; z++) {
-			for (int x = x1; x <= x2; x++) {
-				struct coordinate cc = {y, z, x};
-
-				usage_mark(m, cc);
-			}
-		}
-	}
 }
 
 // TODO: implement this again
@@ -419,6 +431,32 @@ static int movement_cost(struct maze_route_instance *mri, struct routing_group *
 
 #define within(a, b, d) (abs(a.z - b.z) <= d || abs(a.x - b.x) <= d)
 
+// iterates each net backwards to their respective starts, seeing if they come into contact
+// anywhere except at coordinate c, and ONLY by making movement mv
+static int violates_mutual(struct maze_route_instance *mri, struct routing_group *rg, struct routing_group *v_rg, struct coordinate c, enum movement mv)
+{
+	// start a one back
+	struct coordinate a = disp_backtrace(c, movement_to_backtrace(mv));
+	for (; rg->bt[usage_idx(mri->m, a)] != BT_START; a = disp_backtrace(a, rg->bt[usage_idx(mri->m, a)])) {
+		for (struct coordinate b = c; v_rg->bt[usage_idx(mri->m, b)] != BT_START; b = disp_backtrace(b, v_rg->bt[usage_idx(mri->m, b)])) {
+			if (coordinate_equal(a, b))
+				return 1;
+
+			enum movement movts[] = {GO_EAST, GO_WEST, GO_NORTH, GO_SOUTH};
+			for (int i = 0; i < sizeof(movts) / sizeof(enum movement); i++) {
+				struct coordinate cc = disp_movement(a, movts[i]);
+				if (coordinate_equal(a, cc) && movts[i] == mv)
+					continue;
+
+				if (coordinate_equal(cc, b))
+					return 1;
+			}
+		}
+	}
+
+	return 0;
+}
+
 // will violate some rules:
 // 1. there cannot be a vertical movement anywhere within a 3x3 grid centered on the merge point
 // 2. there cannot be other blocks within a 3x3 grid centered on the merge point
@@ -534,7 +572,7 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	// "independent" (i.e., it is its own parent)
 	struct routing_group *visited_rg = mri->visited[usage_idx(m, cc)];
 	if (!violation && visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
-		int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc);
+		int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc); // violates_mutual(mri, rg, visited_rg, cc, mv) || 
 
 		if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
 			visited_rg->parent = rg->parent;
