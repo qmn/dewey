@@ -12,17 +12,6 @@ int in_usage_bounds(struct usage_matrix *m, struct coordinate c)
 	       c.z >= 0 && c.z < m->d.z;
 }
 
-// produces index corresponding to this coordinate
-int usage_idx(struct usage_matrix *m, struct coordinate c)
-{
-	return (c.y * m->d.z * m->d.x) + (c.z * m->d.x) + c.x;
-}
-
-void usage_mark(struct usage_matrix *m, struct coordinate c)
-{
-	m->matrix[usage_idx(m, c)]++;
-}
-
 static int is_toplevel_pin(struct placement *p)
 {
 	if (strncmp("input_pin", p->cell->name, 10) == 0 ||

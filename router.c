@@ -8,10 +8,10 @@
 #include "router.h"
 #include "heap.h"
 #include "blif.h"
-#include "usage_matrix.h"
 #include "maze_router.h"
 #include "dumb_router.h"
 #include "util.h"
+#include "extract.h"
 
 static struct coordinate check_offsets[] = {
 	{0, 0, 0}, // here
