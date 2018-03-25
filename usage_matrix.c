@@ -5,6 +5,14 @@
 #include <stdlib.h>
 #include <string.h>
 
+inline int usage_idx(struct usage_matrix *m, struct coordinate c) {
+	return (c.y * m->d.z * m->d.x) + (c.z * m->d.x) + c.x;
+}
+
+inline void usage_mark(struct usage_matrix *m, struct coordinate c) {
+	m->matrix[usage_idx(m, c)]++;
+}
+
 int in_usage_bounds(struct usage_matrix *m, struct coordinate c)
 {
 	return c.x >= 0 && c.x < m->d.x &&

@@ -431,26 +431,38 @@ static int movement_cost(struct maze_route_instance *mri, struct routing_group *
 
 #define within(a, b, d) (abs(a.z - b.z) <= d || abs(a.x - b.x) <= d)
 
+static int sz_mutual;
+static unsigned char *mutual;
+
 // iterates each net backwards to their respective starts, seeing if they come into contact
 // anywhere except at coordinate c, and ONLY by making movement mv
 static int violates_mutual(struct maze_route_instance *mri, struct routing_group *rg, struct routing_group *v_rg, struct coordinate c, enum movement mv)
 {
+	if (USAGE_SIZE(mri->m) > sz_mutual) {
+		sz_mutual = USAGE_SIZE(mri->m);
+		mutual = realloc(mutual, sizeof(unsigned char) * sz_mutual);
+	}
+	memset(mutual, 0, sizeof(unsigned char) * sz_mutual);
+
 	// start a one back
 	struct coordinate a = disp_backtrace(c, movement_to_backtrace(mv));
 	for (; rg->bt[usage_idx(mri->m, a)] != BT_START; a = disp_backtrace(a, rg->bt[usage_idx(mri->m, a)])) {
-		for (struct coordinate b = c; v_rg->bt[usage_idx(mri->m, b)] != BT_START; b = disp_backtrace(b, v_rg->bt[usage_idx(mri->m, b)])) {
-			if (coordinate_equal(a, b))
+		mutual[usage_idx(mri->m, a)]++;
+	}
+
+	// iterate through mutual violation array
+	for (struct coordinate b = c; v_rg->bt[usage_idx(mri->m, b)] != BT_START; b = disp_backtrace(b, v_rg->bt[usage_idx(mri->m, b)])) {
+		enum movement movts[] = {GO_EAST, GO_WEST, GO_NORTH, GO_SOUTH};
+		for (int i = 0; i < sizeof(movts) / sizeof(enum movement); i++) {
+			struct coordinate cc = disp_movement(a, movts[i]);
+			if (!in_usage_bounds(mri->m, cc))
+				continue;
+
+			if (coordinate_equal(a, cc) && movts[i] == mv)
+				continue;
+
+			if (mutual[usage_idx(mri->m, b)])
 				return 1;
-
-			enum movement movts[] = {GO_EAST, GO_WEST, GO_NORTH, GO_SOUTH};
-			for (int i = 0; i < sizeof(movts) / sizeof(enum movement); i++) {
-				struct coordinate cc = disp_movement(a, movts[i]);
-				if (coordinate_equal(a, cc) && movts[i] == mv)
-					continue;
-
-				if (coordinate_equal(cc, b))
-					return 1;
-			}
 		}
 	}
 
@@ -572,7 +584,7 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	// "independent" (i.e., it is its own parent)
 	struct routing_group *visited_rg = mri->visited[usage_idx(m, cc)];
 	if (!violation && visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
-		int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc); // violates_mutual(mri, rg, visited_rg, cc, mv) || 
+		int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc) || violates_mutual(mri, rg, visited_rg, cc, mv);
 
 		if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
 			visited_rg->parent = rg->parent;

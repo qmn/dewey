@@ -1,5 +1,5 @@
 CC = clang
-CFLAGS = -Wall -g -pedantic -std=c99 -I/usr/local/include -Wmissing-field-initializers -fno-omit-frame-pointer -O3
+CFLAGS = -Wall -g -pedantic -std=c99 -I/usr/local/include -Wmissing-field-initializers -O3
 EXEC_CFLAGS += -L/usr/local/lib -lyaml -lpng -pg -lgd
 BUILD_DIR = build
 SRCS = $(wildcard *.c)

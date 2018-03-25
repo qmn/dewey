@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include <math.h>
 
 #include "segment.h"
@@ -62,23 +63,32 @@ static int mst_heapsort_cmp(const void *x, const void *y)
 	return ((struct mst_heap_node *)x)->weight - ((struct mst_heap_node *)y)->weight;
 }
 
-static struct mst_heap *mst_heapsort(struct coordinate *locs, int n_locs)
+static int n_nodes;
+static int sz_nodes;
+static struct mst_heap_node *nodes;
+
+static struct mst_heap mst_heapsort(struct coordinate *locs, int n_locs)
 {
-	struct mst_heap *h = malloc(sizeof(struct mst_heap));
-	h->n_nodes = n_locs * (n_locs - 1) / 2;
-	h->nodes = calloc(h->n_nodes, sizeof(struct mst_heap_node));
+	struct mst_heap h = {NULL, 0};
+	h.n_nodes = n_locs * (n_locs - 1) / 2;
+	if (h.n_nodes > sz_nodes) {
+		sz_nodes = h.n_nodes;
+		nodes = realloc(nodes, sz_nodes * sizeof(struct mst_heap_node));
+	}
+	memset(nodes, 0, sz_nodes * sizeof(struct mst_heap_node));
+	h.nodes = nodes;
 
 	// create weight matrix; x > y
 	int c = 0;
 	for (int y = 0; y < n_locs; y++) {
 		for (int x = y + 1; x < n_locs; x++) {
 			struct mst_heap_node n = {distance_cityblock(locs[x], locs[y]), x, y};
-			h->nodes[c++] = n;
+			h.nodes[c++] = n;
 		}
 	}
 
 	// surprise! use qsort instead
-	qsort(h->nodes, h->n_nodes, sizeof(struct mst_heap_node), mst_heapsort_cmp);
+	qsort(h.nodes, h.n_nodes, sizeof(struct mst_heap_node), mst_heapsort_cmp);
 
 	return h;
 }
@@ -89,7 +99,7 @@ struct segments *create_mst(struct coordinate *locs, int n_locs)
 	mst->n_segments = n_locs - 1;
 	mst->segments = calloc(mst->n_segments, sizeof(struct segment));
 
-	struct mst_heap *h = mst_heapsort(locs, n_locs);
+	struct mst_heap h = mst_heapsort(locs, n_locs);
 
 	struct mst_ubr_node *s = calloc(n_locs, sizeof(struct mst_ubr_node));
 	// make-set
@@ -100,9 +110,9 @@ struct segments *create_mst(struct coordinate *locs, int n_locs)
 	}
 
 	int n_segments = 0;
-	for (int i = 0; i < h->n_nodes; i++) {
-		int x = h->nodes[i].x;
-		int y = h->nodes[i].y;
+	for (int i = 0; i < h.n_nodes; i++) {
+		int x = h.nodes[i].x;
+		int y = h.nodes[i].y;
 		if (mst_find(&s[x]) != mst_find(&s[y])) {
 			struct segment new_seg = {locs[x], locs[y]};
 			mst->segments[n_segments++] = new_seg;
@@ -111,6 +121,8 @@ struct segments *create_mst(struct coordinate *locs, int n_locs)
 				break;
 		}
 	}
+
+	// don't free h
 
 	return mst;
 }

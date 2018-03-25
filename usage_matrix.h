@@ -17,12 +17,8 @@ struct usage_matrix {
 int in_usage_bounds(struct usage_matrix *, struct coordinate);
 
 // produces index corresponding to this coordinate
-inline int usage_idx(struct usage_matrix *m, struct coordinate c) {
-	return (c.y * m->d.z * m->d.x) + (c.z * m->d.x) + c.x;
-}
-inline void usage_mark(struct usage_matrix *m, struct coordinate c) {
-	m->matrix[usage_idx(m, c)]++;
-}
+int usage_idx(struct usage_matrix *m, struct coordinate c);
+void usage_mark(struct usage_matrix *m, struct coordinate c);
 
 struct usage_matrix *create_usage_matrix(struct cell_placements *, struct routings *, int);
 
