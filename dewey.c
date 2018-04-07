@@ -12,6 +12,7 @@
 #include "placer.h"
 #include "router.h"
 #include "vis_png.h"
+#include "vis_json.h"
 #include "serializer.h"
 
 void usage(char *argv0)

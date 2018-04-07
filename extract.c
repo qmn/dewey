@@ -102,12 +102,6 @@ static void extracted_net_append(struct extracted_net *en, struct coordinate c, 
 	en->d[i] = d;
 }
 
-static void reverse_segment(struct routed_segment *rseg)
-{
-	rseg->seg = (struct segment){rseg->seg.end, rseg->seg.start};
-	invert_backtrace_sequence(rseg->bt, rseg->n_backtraces);
-}
-
 static data_t repeater_data(enum movement m)
 {
 	switch (m & MV_CARDINAL_MASK) {
@@ -344,6 +338,7 @@ static enum movement ordinal_to_movement(enum ordinal_direction od)
 	}
 }
 
+/*
 static void print_extracted_net(struct routed_net *rn)
 {
 	struct coordinate dbr = {0, 0, 0}, dtl = {0, 0, 0};
@@ -432,6 +427,7 @@ static void print_extracted_net(struct routed_net *rn)
 		putchar('\n');
 	}
 }
+*/
 
 // forward declarations
 static void propagate_extraction(struct extracted_net *, struct routed_net *, struct neighbors, struct coordinate, int, struct coordinate);
@@ -589,26 +585,37 @@ struct extracted_net *extract_net(struct routed_net *rn, struct coordinate disp)
 			ds = rsa->parent;
 		}
 	}
-	assert(dp && ds);
+	if (dp && ds) {
+		// reset all pins', segments' extraction
+		for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
+			rsh->rseg.extracted = 0;
 
-	// reset all pins', segments' extraction
-	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next)
-		rsh->rseg.extracted = 0;
+		for (int i = 0; i < rn->n_pins; i++)
+			rn->pins[i].extracted = 0;
 
-	for (int i = 0; i < rn->n_pins; i++)
-		rn->pins[i].extracted = 0;
+		extract_pin(en, rn, dp, dp->cell_pin->level - 1, disp);
 
-	extract_pin(en, rn, dp, dp->cell_pin->level - 1, disp);
+		// ensure all segments extracted
+		int extracted = 0, total = 0;
+		for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next, total++) {
+			if (rsh->rseg.extracted)
+				extracted++;
 
-	// ensure all segments extracted
-	int extracted = 0, total = 0;
-	for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next, total++) {
-		if (rsh->rseg.extracted)
-			extracted++;
+			// assert(rsh->rseg.extracted);
+		}
+		printf("[extraction] %d/%d extracted\n", extracted, total);
+	} else {
+		printf("[extraction] no driving pin, extracting everything dumbly\n");
 
-		// assert(rsh->rseg.extracted);
+		for (struct routed_segment_head *rsh = rn->routed_segments; rsh; rsh = rsh->next) {
+			struct routed_segment *rseg = &rsh->rseg;
+			struct coordinate c = rseg->seg.end;
+			for (int i = 0; i < rseg->n_backtraces; i++) {
+				place_movement(en, c, backtrace_to_movement(rseg->bt[i]), disp);
+				c = disp_backtrace(c, rseg->bt[i]);
+			}
+		}
 	}
-	printf("[extraction] %d/%d extracted\n", extracted, total);
 
 	return en;
 }

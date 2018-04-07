@@ -48,6 +48,7 @@ int movement_vertical(enum movement);
 struct cost_coord {
 	unsigned int cost;
 	struct coordinate coord;
+	struct routing_group *rg;
 };
 
 struct routings {

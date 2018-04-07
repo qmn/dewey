@@ -20,9 +20,6 @@ struct routing_group {
            when non-NULL, another routing group has subsumed this one. */
 	struct routing_group *parent;
 
-	/* heap of cost/coordinate pairs to visit */
-	struct cost_coord_heap *heap;
-
 	/* backtrace for this routing instance */
 	enum backtrace *bt;
 
@@ -44,6 +41,9 @@ struct routing_group {
 struct maze_route_instance {
 	struct routed_net *rn;
 
+	/* heap of cost/coordinate pairs to visit */
+	struct cost_coord_heap *heap;
+
 	struct usage_matrix *m;
 	struct routing_group **visited;
 
@@ -59,11 +59,9 @@ static struct routing_group *alloc_routing_group(struct maze_route_instance *mri
 
 	struct routing_group *rg = malloc(sizeof(struct routing_group));
 	rg->parent = rg;
-	rg->heap = NULL;
 	rg->bt = NULL;
 	rg->cost = NULL;
 
-	rg->heap = create_cost_coord_heap();
 
 	rg->bt = calloc(usage_size, sizeof(enum backtrace));
 	for (int i = 0; i < usage_size; i++)
@@ -83,7 +81,6 @@ static struct routing_group *alloc_routing_group(struct maze_route_instance *mri
 
 void free_routing_group(struct routing_group *rg)
 {
-	free_cost_coord_heap(rg->heap);
 	free(rg->bt);
 	free(rg->cost);
 }
@@ -103,8 +100,8 @@ static void init_routing_group_with_pin(struct maze_route_instance *mri, struct 
 	struct coordinate start = extend_pin(p);
 	rg->bt[usage_idx(mri->m, start)] = BT_START;
 	rg->cost[usage_idx(mri->m, start)] = 0;
-	struct cost_coord start_cc = {0, start};
-	cost_coord_heap_insert(rg->heap, start_cc);
+	struct cost_coord start_cc = {0, start, rg};
+	cost_coord_heap_insert(mri->heap, start_cc);
 	int i = usage_idx(mri->m, extend_pin(p));
 	// assert(!mri->visited[i] || routing_group_find(mri->visited[i]) == routing_group_find(rg));
 	mri->visited[i] = rg;
@@ -149,8 +146,8 @@ static void init_routing_group_with_segment(struct maze_route_instance *mri, str
 		assert(in_usage_bounds(mri->m, c));
 
 		if (!within_a_vertical(rseg->bt, i, rseg->n_backtraces)) {
-			struct cost_coord next = {0, c};
-			cost_coord_heap_insert(rg->heap, next);
+			struct cost_coord next = {0, c, rg};
+			cost_coord_heap_insert(mri->heap, next);
 			rg->cost[usage_idx(mri->m, c)] = 0;
 			rg->bt[usage_idx(mri->m, c)] = BT_START;
 			mri->visited[usage_idx(mri->m, c)] = rg;
@@ -174,31 +171,6 @@ static void routed_segment_add_child(struct routed_net *rn, struct routed_segmen
 		add_adjacent_pin(rn, rseg, child->origin.pin);
 	else if (child->origin_type == SEGMENT)
 		add_adjacent_segment(rn, rseg, child->origin.rseg, at);
-}
-
-
-/* find the smallest active (i.e., parent = self) routing group that has a heap
-   with elements */
-static struct routing_group *find_smallest_heap(struct routing_group **rgs, unsigned int n_groups)
-{
-	struct routing_group *smallest = NULL;
-	int smallest_score = 0;
-
-	for (int i = 0; i < n_groups; i++) {
-		struct routing_group *rg = rgs[i];
-		if (!rg || rg->parent != rg || rg->heap->n_elts == 0)
-			continue;
-
-		int heap_score = cost_coord_heap_peek(rg->heap).cost;
-		if (!smallest || heap_score < smallest_score) {
-			smallest_score = heap_score;
-			smallest = rg;
-		}
-	}
-
-	assert(smallest);
-
-	return smallest;
 }
 
 // TODO: implement this again
@@ -363,7 +335,7 @@ void populate_routing_group(struct maze_route_instance *mri, struct routing_grou
 
 struct maze_route_instance create_maze_route_instance(struct cell_placements *cp, struct routings *rt, struct routed_net *rn, int xz_margin)
 {
-	struct maze_route_instance mri = {NULL, NULL, NULL, NULL, 0, 0};
+	struct maze_route_instance mri = {NULL, NULL, NULL, NULL, NULL, 0, 0};
 
 	mri.rn = rn;
 
@@ -378,6 +350,7 @@ struct maze_route_instance create_maze_route_instance(struct cell_placements *cp
 
 	// track visiting routing_groups; NULL if not-yet visited
 	mri.visited = calloc(usage_size, sizeof(struct routing_group *));
+	mri.heap = create_cost_coord_heap();
 
 	// at fewest we can have just one remaining group
 	mri.n_groups = 0;
@@ -402,6 +375,7 @@ void free_mri(struct maze_route_instance mri)
 	for (int i = 0; i < mri.n_groups; i++)
 		free_routing_group(mri.rgs[i]);
 	free(mri.rgs);
+	free_cost_coord_heap(mri.heap);
 	free(mri.visited);
 }
 
@@ -575,7 +549,8 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	unsigned int new_cost = rg->cost[usage_idx(m, c)] + cost_delta;
 
 	// if this location has a lower score, update the cost and backtrace
-	if (new_cost < rg->cost[usage_idx(m, cc)]) {
+	int update_cost = new_cost < rg->cost[usage_idx(m, cc)];
+	if (update_cost) {
 		rg->cost[usage_idx(m, cc)] = new_cost;
 		rg->bt[usage_idx(m, cc)] = bt;
 	}
@@ -591,7 +566,7 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 			mri->remaining_groups--;
 			return 1;
 
-		} else if (!merge_violation) {
+		} else {
 			// create a new segment arising from the merging of these two routing groups
 			struct routed_segment_head *rsh = malloc(sizeof(struct routed_segment_head));
 			rsh->next = NULL;
@@ -623,8 +598,8 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	// if we haven't already visited this one, add it to the heap
 	// (and by "we" i mean this exact routing group, not its children)
 	if (visited_rg != rg) {
-		struct cost_coord next = {new_cost, cc};
-		cost_coord_heap_insert(rg->heap, next);
+		struct cost_coord next = {new_cost, cc, rg};
+		cost_coord_heap_insert(mri->heap, next);
 	}
 
 	mri->visited[usage_idx(m, cc)] = rg;
@@ -632,7 +607,7 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	return 0;
 }
 
-static enum movement movts[] = {GO_WEST, GO_NORTH, GO_EAST, GO_SOUTH, GO_DOWN, GO_UP};
+static enum movement movts[] = {GO_WEST, GO_NORTH, GO_EAST, GO_SOUTH};
 static int n_movts = sizeof(movts) / sizeof(enum movement);
 
 // see silk.md for a description of this algorithm
@@ -645,24 +620,33 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 		return;
 
 	struct maze_route_instance mri = create_maze_route_instance(cp, rt, rn, xz_margin);
+	// printf("[maze_reroute] rerouting net %d\n", rn->net);
 
 	// THERE CAN ONLY BE ONE-- i mean,
 	// repeat until one group remains
 	while (mri.remaining_groups > 1) {
 		// select the smallest non-empty heap that is also its own parent (rg->parent = rg)
-		struct routing_group *rg = find_smallest_heap(mri.rgs, mri.n_groups);
-		assert(rg == rg->parent);
-
 		// expand this smallest heap
-		assert(rg->heap->n_elts > 0);
-		struct coordinate c = cost_coord_heap_delete_min(rg->heap).coord;
+		assert(mri.heap->n_elts > 0);
+		struct cost_coord cc;
+		do {
+			assert(mri.heap->n_elts > 0);
+			cc = cost_coord_heap_delete_min(mri.heap);
+		} while (cc.rg != routing_group_find(cc.rg));
+
+		struct coordinate c = cc.coord;
 		assert(in_usage_bounds(mri.m, c));
 
 		// for each of the possible movements, expand in that direction
-		for (int i = 0; i < n_movts; i++) {
-			int merge_occurred = mri_visit(&mri, rg, c, movts[i]);
-			if (merge_occurred)
-				break;
+		int merge_occurred = mri_visit(&mri, cc.rg, c, GO_WEST) || mri_visit(&mri, cc.rg, c, GO_NORTH) || mri_visit(&mri, cc.rg, c, GO_EAST) || mri_visit(&mri, cc.rg, c, GO_SOUTH);
+
+		if (!merge_occurred) {
+			// suggest vertical movements only if mine and previous backtraces were cardinal and same
+			enum backtrace my_bt = cc.rg->bt[usage_idx(mri.m, c)];
+			enum backtrace b4_bt = cc.rg->bt[usage_idx(mri.m, disp_backtrace(c, my_bt))];
+			if (is_cardinal(my_bt) && b4_bt == my_bt) {
+				mri_visit(&mri, cc.rg, c, GO_UP) || mri_visit(&mri, cc.rg, c, GO_DOWN);
+			}
 		}
 	}
 

@@ -63,7 +63,6 @@ static int mst_heapsort_cmp(const void *x, const void *y)
 	return ((struct mst_heap_node *)x)->weight - ((struct mst_heap_node *)y)->weight;
 }
 
-static int n_nodes;
 static int sz_nodes;
 static struct mst_heap_node *nodes;
 

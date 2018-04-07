@@ -4,6 +4,7 @@
 
 #include "router.h"
 #include "base_router.h"
+#include "vis_png.h"
 
 // route, based on a cityblock algorithm, without regard to Y or obstacles
 static void cityblock_route(struct routed_segment *rseg)
