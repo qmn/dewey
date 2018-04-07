@@ -29,7 +29,7 @@ struct routing_group {
 	// the (parentless) pin or segment that forms
 	// the start from which a Lee's algo wavefront
 	// begins
-	enum {NONE, SEGMENT, PIN} origin_type;
+	enum rsa_type origin_type;
 	union {
 		void *p;
 		struct routed_segment *rseg;
@@ -403,6 +403,7 @@ static int movement_cost(struct maze_route_instance *mri, struct routing_group *
 	return movement_cost;
 }
 
+/*
 #define within(a, b, d) (abs(a.z - b.z) <= d || abs(a.x - b.x) <= d)
 
 static int sz_mutual;
@@ -474,6 +475,7 @@ static int violates_merge_isolation(struct maze_route_instance *mri, struct rout
 
 	return 0;
 }
+*/
 
 // visit coordinate cc from coordinate c (of routing group rg), by using
 // backtrace bt, merging groups as needed; if it merged, return 1, otherwise
@@ -559,7 +561,7 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	// "independent" (i.e., it is its own parent)
 	struct routing_group *visited_rg = mri->visited[usage_idx(m, cc)];
 	if (!violation && visited_rg && visited_rg->parent == visited_rg && routing_group_find(visited_rg) != rg) {
-		int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc) || violates_mutual(mri, rg, visited_rg, cc, mv);
+		// int merge_violation = violates_merge_isolation(mri, rg, visited_rg, cc) || violates_mutual(mri, rg, visited_rg, cc, mv);
 
 		if (rg->bt[usage_idx(m, c)] == BT_START && visited_rg->bt[usage_idx(m, cc)] == BT_START) {
 			visited_rg->parent = rg->parent;
@@ -607,9 +609,6 @@ static int mri_visit(struct maze_route_instance *mri, struct routing_group *rg, 
 	return 0;
 }
 
-static enum movement movts[] = {GO_WEST, GO_NORTH, GO_EAST, GO_SOUTH};
-static int n_movts = sizeof(movts) / sizeof(enum movement);
-
 // see silk.md for a description of this algorithm
 // accepts a routed_net object, with any combination of previously-routed
 // segments and unrouted pins and uses Lee's algorithm to connect them
@@ -645,7 +644,9 @@ void maze_reroute(struct cell_placements *cp, struct routings *rt, struct routed
 			enum backtrace my_bt = cc.rg->bt[usage_idx(mri.m, c)];
 			enum backtrace b4_bt = cc.rg->bt[usage_idx(mri.m, disp_backtrace(c, my_bt))];
 			if (is_cardinal(my_bt) && b4_bt == my_bt) {
-				mri_visit(&mri, cc.rg, c, GO_UP) || mri_visit(&mri, cc.rg, c, GO_DOWN);
+				merge_occurred = mri_visit(&mri, cc.rg, c, GO_UP);
+				if (!merge_occurred)
+					mri_visit(&mri, cc.rg, c, GO_DOWN);
 			}
 		}
 	}

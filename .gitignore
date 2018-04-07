@@ -6,3 +6,4 @@ tags
 *.blif
 *.log
 *.png
+.DS_Store

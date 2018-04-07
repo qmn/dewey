@@ -177,14 +177,14 @@ void vis_png_draw_placements(char *output_dir, struct blif *blif, struct cell_pl
 	for (int x = 0; x < d.x; x++) {
 		gdFontPtr font = gdFontGetSmall();
 		char buf[3];
-		snprintf(buf, 3, "%2d", x);
+		snprintf(buf, 3, "%2d", x%100);
 		gdImageString(im, font, x * 16 + 2, 0, (unsigned char *)buf, white);
 	}
 
 	for (int z = 1; z < d.z; z++) {
 		gdFontPtr font = gdFontGetSmall();
 		char buf[3];
-		snprintf(buf, 3, "%2d", z);
+		snprintf(buf, 3, "%2d", z%100);
 		gdImageString(im, font, 2, 16 * z, (unsigned char *)buf, white);
 	}
 

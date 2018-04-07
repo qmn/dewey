@@ -1,6 +1,6 @@
 CC = clang
-CFLAGS += -Wall -g -pedantic -std=c99 -I/usr/local/include -Wmissing-field-initializers -O3
-EXEC_CFLAGS += -L/usr/local/lib -lyaml -lpng -pg -lgd
+CFLAGS += -Wall -g -pedantic -std=c99 -Wmissing-field-initializers -O3
+EXEC_CFLAGS += -lyaml -lpng -pg -lgd
 BUILD_DIR = build
 SRCS = $(wildcard *.c)
 OBJS = $(foreach f,$(SRCS:.c=.o),$(BUILD_DIR)/$f)

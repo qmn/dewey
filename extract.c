@@ -231,7 +231,7 @@ static void add_repeaters(enum movement *m, int* strengths, int n)
 
 struct neighbor {
 	struct coordinate at;
-	enum {SEGMENT, PIN} tn;
+	enum rsa_type tn;
 	union {
 		struct routed_segment *rseg;
 		struct placed_pin *pin;

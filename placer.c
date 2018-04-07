@@ -26,10 +26,10 @@
 #define DISPLACE_INTERCHANGE_RATIO 5.0
 
 enum placement_method {
-	NONE,
-	DISPLACE,
-	REORIENT,
-	INTERCHANGE
+	PLACER_METHOD_NONE,
+	PLACER_METHOD_DISPLACE,
+	PLACER_METHOD_REORIENT,
+	PLACER_METHOD_INTERCHANGE
 };
 
 // move all placements subject to the following constraints:
@@ -200,11 +200,11 @@ static enum placement_method generate(struct cell_placements *placements,
 			//	cell_a_idx, cell_a->placement.y, cell_a->placement.z, cell_a->placement.x,
 			//	cell_b_idx, cell_b->placement.y, cell_b->placement.z, cell_b->placement.x);
 
-			return INTERCHANGE;
+			return PLACER_METHOD_INTERCHANGE;
 		}
 
-		return NONE;
-	} else if (method == DISPLACE) {
+		return PLACER_METHOD_NONE;
+	} else if (method == PLACER_METHOD_DISPLACE) {
 
 		/* displace */
 		int dz = 0, dx = 0;
@@ -227,20 +227,15 @@ static enum placement_method generate(struct cell_placements *placements,
 			cell_a->placement.x += dx;
 		}
 
-#if 1 // cheating
-		cell_a->placement.x = min(cell_a->placement.x, 1000);
-		cell_a->placement.z = min(cell_a->placement.z, 1000);
-#endif
-
-		return DISPLACE;
+		return PLACER_METHOD_DISPLACE;
 	} else {
 		/* reorient */
 		// printf("[placer] rotate\n");
 		if (!(cell_a->constraints & CONSTR_NO_ROTATE)) {
 			cell_a->turns = (cell_a->turns + 1) % 4;
-			return REORIENT;
+			return PLACER_METHOD_REORIENT;
 		}
-		return NONE;
+		return PLACER_METHOD_NONE;
 	}
 }
 
@@ -582,37 +577,6 @@ static int compute_wire_length_penalty(struct cell_placements *cp)
 	return penalty;
 }
 
-static void mark_congestion(int *cm, struct dimensions d, struct coordinate o, struct coordinate a, struct coordinate b)
-{
-	a.x -= o.x; a.z -= o.z;
-	b.x -= o.x, b.z -= o.z;
-
-	while (a.x != b.x || a.z != b.z) {
-		if (a.z >= 0 && a.z < d.z && a.x >= 0 && a.x < d.x) {
-			cm[a.z * d.x + a.x] += 2;
-
-			if (a.x != b.x) {
-				cm[max(a.z-1, 0) * d.x + a.x]++;
-				cm[min(a.z+1, d.z-1) * d.x + a.x]++;
-			}
-
-			if (a.z != b.z) {
-				cm[a.z * d.x + max(a.x-1,0)]++;
-				cm[a.z * d.x + min(a.x+1,d.x-1)]++;
-			}
-		}
-
-		if (a.x > b.x)
-			a.x--;
-		else if (a.x < b.x)
-			a.x++;
-		else if (a.z > b.z)
-			a.z--;
-		else if (a.z < b.z)
-			a.z++;
-	}
-}
-
 static double congestion_overlap(struct cell_placements *cp, struct coordinate c1, struct coordinate c2)
 {
 	double congestion = 0.;
@@ -706,12 +670,6 @@ static int compute_out_of_bounds_penalty(struct cell_placements *placements, str
 	return penalty;
 }
 
-static int compute_squareness_penalty(struct cell_placements *cp)
-{
-	struct dimensions d = compute_placement_dimensions(cp);;
-	return max(d.x, d.z) * max(d.x, d.z) * d.y;
-}
-
 /* computes the area required to implement this design */
 static int compute_design_size_penalty(struct cell_placements *placements)
 {
@@ -728,7 +686,6 @@ static double score(struct cell_placements *placements, struct dimensions bounda
 	double wire_length = (double)compute_wire_length_penalty(placements);
 	double bounds = (double)compute_out_of_bounds_penalty(placements, boundary);
 	double design_size = (double)compute_design_size_penalty(placements);
-	double squareness = (double)compute_squareness_penalty(placements);
 	double spread = compute_spread_penalty(placements);
 	double congestion = compute_congestion_penalty(placements);
 	double final_score = overlap.score + wire_length + bounds + design_size + /* squareness + */ spread + pow(congestion, 2.);
@@ -816,7 +773,7 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 #ifdef PLACER_GENERATION_DEBUG
 		printf("[placer] iteration = %d\n", i);
 #endif
-		method = DISPLACE;
+		method = PLACER_METHOD_DISPLACE;
 
 		for (g = 0; g < generations; ) {
 #ifdef PLACER_GENERATION_DEBUG
@@ -829,9 +786,9 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 			printf("[placer] made a copy\n");
 #endif
 			method_used = generate(new_placements, dimensions_piecewise_max(wanted, d), t, t_0, method);
-			if (method_used != NONE)
+			if (method_used != PLACER_METHOD_NONE)
 				g++;
-			// printf("[placer] method was %d (NONE, DISPLACE, REORIENT, INTERCHANGE)\n", method_used);
+			// printf("[placer] method was %d (PLACER_METHOD_NONE, PLACER_METHOD_DISPLACE, PLACER_METHOD_REORIENT, PLACER_METHOD_INTERCHANGE)\n", method_used);
 			recenter_unconstrained_placements(new_placements, (struct coordinate){0, 0, 4});
 			// recenter(new_placements, NULL, 0);
 #ifdef PLACER_GENERATION_DEBUG
@@ -870,13 +827,13 @@ struct cell_placements *simulated_annealing_placement(struct cell_placements *in
 
 			// alternate method for generation
 			switch (method_used) {
-			case DISPLACE:
-				method = REORIENT;
+			case PLACER_METHOD_DISPLACE:
+				method = PLACER_METHOD_REORIENT;
 				break;
-			case REORIENT:
+			case PLACER_METHOD_REORIENT:
 				// fallthrough
 			default:
-				method = DISPLACE;
+				method = PLACER_METHOD_DISPLACE;
 				break;
 			}
 

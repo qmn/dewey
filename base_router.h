@@ -79,7 +79,7 @@ struct routed_segment_head {
 // a routed_segment_adjacency is a linked list of
 // adjacencies between segments and other segments or pins
 // b_type determines what's contained in the union
-enum rsa_type { SEGMENT, PIN };
+enum rsa_type { NONE, SEGMENT, PIN };
 struct routed_segment_adjacency {
 	struct routed_segment_adjacency *next;
 

@@ -687,7 +687,7 @@ struct routings *route(struct blif *blif, struct cell_placements *cp)
 
 	int iterations = 0;
 	int violations;
-	int routings_score;
+	int routings_score = 0;
 
 	interrupt_routing = 0;
 	signal(SIGINT, router_sigint_handler);
