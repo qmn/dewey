@@ -75,3 +75,29 @@ void serialize_routings(FILE *f, struct routings *rt, struct blif *blif)
 		serialize_routing(f, rn);
 	}
 }
+
+void serialize_extraction(FILE *f, struct extraction *e)
+{
+	struct dimensions d = e->dimensions;
+
+	fprintf(f, "extraction:\n");
+	fprintf(f, "  dimensions: (%d, %d, %d)\n", d.y, d.z, d.x);
+	fprintf(f, "  blocks: [");
+	for (int i = 0; i < d.y * d.z * d.x; i++) {
+		fprintf(f, "%d", e->blocks[i]);
+
+		if (i + 1 < d.y * d.z * d.x)
+			fprintf(f, ",");
+		else
+			fprintf(f, "]\n");
+	}
+
+	fprintf(f, "  data: [");
+	for (int i = 0; i < d.y * d.z * d.x; i++) {
+		fprintf(f, "%d", e->data[i]);
+		if (i + 1 < d.y * d.z * d.x)
+			fprintf(f, ",");
+		else
+			fprintf(f, "]\n");
+	}
+}

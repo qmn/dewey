@@ -132,6 +132,7 @@ int main(int argc, char **argv)
 	printf("[dewey] intial dimensions: {x: %d, y: %d, z: %d}\n",
 		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
+	printf("[dewey] beginning placement...\n");
 	struct cell_placements *new_placements;
 	new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 100, 100, 100);
 	// struct cell_placements *new_placements = initial_placement;
@@ -147,38 +148,23 @@ int main(int argc, char **argv)
 	printf("[dewey] placement dimensions: {x: %d, y: %d, z: %d}\n",
 		placement_dimensions.x, placement_dimensions.y, placement_dimensions.z);
 
-/*
-	struct dimensions fd = compute_placement_dimensions(new_placements);
-	block_t *flattened = extract_placements(new_placements);
-	for (int y = 0; y < fd.y; y++) {
-		for (int z = 0; z < fd.z; z++) {
-			for (int x = 0; x < fd.x; x++) {
-				printf("%3u ", flattened[y * fd.x * fd.z + z * fd.x + x]);
-			}
-			printf("\n");
-		}
-		printf("\n");
-	}
-	free(flattened);
-*/
-
+	printf("[dewey] beginning routing...\n");
 	struct routings *routings = route(blif, new_placements);
 
 	FILE *rf = fopen("routings.yaml", "w");
 	serialize_routings(rf, routings, blif);
 	fclose(rf);
 
-	vis_png_draw_placements(output_dir, blif, new_placements, routings, 0);
-	vis_png_draw_placements(output_dir, blif, new_placements, routings, 1);
-	vis_png_draw_placements(output_dir, blif, new_placements, routings, 2);
-
-	FILE *output_json = fopen("output.json", "w");
-	vis_json(output_json, blif, new_placements, routings);
-	vis_json(output_json, blif, new_placements, routings);
-	vis_json(output_json, blif, new_placements, routings);
+	printf("[dewey] beginning extraction...\n");
+	FILE *ef = fopen("extraction.yaml", "w");
+	serialize_extraction(ef, extract(new_placements, routings));
+	fclose(ef);
+	printf("[dewey] wrote extraction to extraction.yaml\n");
 
         free_blif(blif);
 	free_cell_library(cl);
+
+	printf("[dewey] done!\n");
 
 	return 0;
 }

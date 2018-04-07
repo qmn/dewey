@@ -465,8 +465,8 @@ static int weaken(int strength, enum movement m)
 		return strength - 1;
 	else if (movement_vertical(m) || m & GO_REPEAT)
 		return 16;
-	else
-		printf("[weaken] wat\n");
+	// else
+	//	printf("[weaken] wat\n");
 
 	return strength;
 }
@@ -603,7 +603,7 @@ struct extracted_net *extract_net(struct routed_net *rn, struct coordinate disp)
 
 			// assert(rsh->rseg.extracted);
 		}
-		printf("[extraction] %d/%d extracted\n", extracted, total);
+		// printf("[extraction] %d/%d extracted\n", extracted, total);
 	} else {
 		printf("[extraction] no driving pin, extracting everything dumbly\n");
 

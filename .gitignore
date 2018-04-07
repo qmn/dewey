@@ -7,3 +7,5 @@ tags
 *.log
 *.png
 .DS_Store
+*.json
+*.yaml
