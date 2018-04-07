@@ -124,7 +124,7 @@ int main(int argc, char **argv)
 	printf("[dewey] seeding random generator to %d\n", seed);
 	srandom(seed);
 
-	/* begin with initial placement */
+	// perfrom initial placement
 	struct cell_placements *initial_placement = placer_initial_place(blif, cl);
 	struct dimensions initial_dimensions = compute_placement_dimensions(initial_placement);
 	print_cell_placements(initial_placement);
@@ -132,6 +132,7 @@ int main(int argc, char **argv)
 	printf("[dewey] intial dimensions: {x: %d, y: %d, z: %d}\n",
 		initial_dimensions.x, initial_dimensions.y, initial_dimensions.z);
 
+	// perform actual placement
 	printf("[dewey] beginning placement...\n");
 	struct cell_placements *new_placements;
 	new_placements = simulated_annealing_placement(initial_placement, &initial_dimensions, 100, 100, 100);
@@ -140,9 +141,13 @@ int main(int argc, char **argv)
 
 	vis_png_draw_placements(output_dir, blif, new_placements, NULL, 0);
 
-	FILE *pf = fopen("placements.yaml", "w");
+	// write placements to file
+	char *pfn;
+	asprintf(&pfn, "%s/placements.yaml", output_dir);
+	FILE *pf = fopen(pfn, "w");
 	serialize_placements(pf, new_placements, blif);
 	fclose(pf);
+	free(pfn);
 
 	struct dimensions placement_dimensions = compute_placement_dimensions(new_placements);
 	printf("[dewey] placement dimensions: {x: %d, y: %d, z: %d}\n",
@@ -151,15 +156,26 @@ int main(int argc, char **argv)
 	printf("[dewey] beginning routing...\n");
 	struct routings *routings = route(blif, new_placements);
 
-	FILE *rf = fopen("routings.yaml", "w");
+	// write routings to file
+	char *rfn;
+	asprintf(&rfn, "%s/routings.yaml", output_dir);
+	FILE *rf = fopen(rfn, "w");
 	serialize_routings(rf, routings, blif);
 	fclose(rf);
+	free(rfn);
 
+	// write extraction to file
 	printf("[dewey] beginning extraction...\n");
-	FILE *ef = fopen("extraction.yaml", "w");
+	char *efn;
+	asprintf(&efn, "%s/extraction.yaml", output_dir);
+	FILE *ef = fopen(efn, "w");
 	serialize_extraction(ef, extract(new_placements, routings));
 	fclose(ef);
+	free(efn);
 	printf("[dewey] wrote extraction to extraction.yaml\n");
+
+	// draw placements
+	vis_png_draw_placements(output_dir, blif, new_placements, routings, 2);
 
         free_blif(blif);
 	free_cell_library(cl);
