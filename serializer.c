@@ -81,7 +81,7 @@ void serialize_extraction(FILE *f, struct extraction *e)
 	struct dimensions d = e->dimensions;
 
 	fprintf(f, "extraction:\n");
-	fprintf(f, "  dimensions: (%d, %d, %d)\n", d.y, d.z, d.x);
+	fprintf(f, "  dimensions: [%d, %d, %d]\n", d.y, d.z, d.x);
 	fprintf(f, "  blocks: [");
 	for (int i = 0; i < d.y * d.z * d.x; i++) {
 		fprintf(f, "%d", e->blocks[i]);
