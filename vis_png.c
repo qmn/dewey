@@ -21,8 +21,8 @@ static struct texture_0_coord {
 	{55, 18, 13},
 	{76, 19, 2},
 	{75, 19, 3},
-	{94, 19, 6},
-	{93, 1, 6},
+	{94, 19, 6}, // lit repeater
+	{93, 19, 5}, // unlit repeater
 	{150, 2, 6},
 	{149, 1, 6},
 	{152, 18, 10},
@@ -90,7 +90,7 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 	}
 
 	gdImagePtr rs = redstone_mask(textures_0);
-	int repeater_angle[] = {180, 90, 0, 270}; // data & 0x3 -> angle
+	int repeater_angle[] = {0, 270, 180, 90}; // data & 0x3 -> angle
 	int torch_angle[] = {0, 270, 90, 180, 0, 0};
 
 	switch (block) {
@@ -104,6 +104,8 @@ void vis_png_draw_block(gdImagePtr im, gdImagePtr textures_0, block_t block, int
 		break;
 	case 93:
 	case 94: // repeater
+		gdImageCopyRotated(im, textures_0, im_start_x + 8, im_start_y + 8, texture_start_x, texture_start_y, 16, 16, repeater_angle[data & 0x3]);
+		break;
 	case 149:
 	case 150: // comparator
 		gdImageCopyRotated(im, textures_0, im_start_x + 8, im_start_y + 8, texture_start_x, texture_start_y, 16, 16, repeater_angle[data & 0x3]);
