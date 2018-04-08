@@ -45,9 +45,12 @@ static gdImagePtr redstone_mask(gdImagePtr textures_0)
 	return rs;
 }
 
+#ifndef TEXTURES_FILE
+# error "Define TEXTURES_FILE to use the vis_png routines"
+#endif
 static gdImagePtr load_textures_0()
 {
-	FILE *f = fopen("/Users/qmn/Library/Application Support/minecraft/textures_0.png", "rb");
+	FILE *f = fopen(TEXTURES_FILE, "rb");
 	if (!f) {
 		printf("[vis_png] error opening textures_0\n");
 		return NULL;
