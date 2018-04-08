@@ -76,7 +76,7 @@ overwrite your world data!_ On a Mac, you may find your world folders at
 `~/Library/Application Support/minecraft/saves/...`. Then, run the
 `inserter.py` Python script:
 
-    $ ./inserter.py extraction.yaml path/to/your/world/folder
+    $ scripts/inserter.py extraction.yaml path/to/your/world/folder
     [inserter] reading in extraction
     [inserter] done.
     [inserter] starting insertion...

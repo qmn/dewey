@@ -106,26 +106,28 @@ static data_t repeater_data(enum movement m)
 {
 	switch (m & MV_CARDINAL_MASK) {
 	case GO_EAST:
-		return 3;
-	case GO_NORTH:
-		return 2;
-	case GO_WEST:
 		return 1;
+	case GO_NORTH:
+		return 0;
+	case GO_WEST:
+		return 3;
 	default:
 	case GO_SOUTH:
-		return 0;
+		return 2;
 	}
 }
 
 #define AIR 0
 #define STONE 1
 #define REDSTONE_TORCH 76
+#define UNLIT_REDSTONE_TORCH 75
 #define TORCH_UP 5
 #define PISTON_DOWN 0
 #define REDSTONE_DUST 55
 #define PLANKS 5
 #define DIRT 3
-#define UNLIT_REDSTONE_REPEATER 94
+#define REDSTONE_REPEATER 94
+#define UNLIT_REDSTONE_REPEATER 93
 #define STICKY_PISTON 29
 #define REDSTONE_BLOCK 152
 #define SLIME 165
@@ -166,15 +168,18 @@ static void place_movement(struct extracted_net *en, struct coordinate c, enum m
 			extracted_net_append(en, c, REDSTONE_DUST, 0);
 
 	} else if (m & GO_UP) {
+		c.y--;
+		extracted_net_append(en, c, base_block(c), 0); c.y++; // 0
 		extracted_net_append(en, c, base_block(c), 0); c.y++; // 0
 		extracted_net_append(en, c, REDSTONE_TORCH, TORCH_UP); c.y++; // 1
 		extracted_net_append(en, c, base_block(c), 0); c.y++; // 2
-		extracted_net_append(en, c, REDSTONE_TORCH, TORCH_UP);; // 3
+		extracted_net_append(en, c, UNLIT_REDSTONE_TORCH, TORCH_UP);; // 3
 
 	} else if (m & GO_DOWN) {
+		c.y--;
 		extracted_net_append(en, c, STICKY_PISTON, PISTON_DOWN); c.y--; // 2
 		extracted_net_append(en, c, REDSTONE_BLOCK, 0); c.y--; // 1
-		extracted_net_append(en, c, AIR, 0); // 0
+		extracted_net_append(en, c, AIR, 0); c.y--; // 0
 		extracted_net_append(en, c, base_block(c), 0); // -1
 	}
 }
@@ -190,7 +195,7 @@ static int is_repeatable(enum movement *m, int i, int n)
 }
 
 #define MAX_REDSTONE_STRENGTH 15
-#define MIN_REDSTONE_STRENGTH 2
+#define MIN_REDSTONE_STRENGTH 3
 // to a net that has the correct direction (that is, the source is seg.start
 // and the sink is seg.end), place repeaters -- we want to place a minimum
 // of repeaters, to reduce delay, but enough to propagate the signal

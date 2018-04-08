@@ -14,8 +14,8 @@
 #include "segment.h"
 #include "util.h"
 
-#define MIN_MARGIN 2
-#define EDGE_MARGIN 2
+#define MIN_MARGIN 4
+#define EDGE_MARGIN 4
 
 #define MIN_WINDOW_WIDTH 3
 #define MIN_WINDOW_HEIGHT 3

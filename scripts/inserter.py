@@ -239,13 +239,13 @@ def insert_extracted_layout(world, extracted_layout, offset=(0, 0, 0)):
     # place base
 
     m = 32 * 16
-    print("[inserter] placing bed of dirt...")
+    print("[inserter] placing bed of grass...")
     for zz in xrange(width / m + 1):
         for xx in xrange(length / m + 1):
             with Region(world.get_region(xx, zz)) as region:
                 for z in xrange(min(m, width - zz*m)):
                     for x in xrange(min(m, length - xx*m)):
-                        region.set_block(x, start_y-1, z, block_names.index("dirt"))
+                        region.set_block(x, start_y-1, z, block_names.index("grass"))
 
     print("[inserter] placing actual blocks...")
     for zz in xrange(width / m + 1):
@@ -255,10 +255,6 @@ def insert_extracted_layout(world, extracted_layout, offset=(0, 0, 0)):
                     for z in xrange(min(m, width - zz*m)):
                         for x in xrange(min(m, length - xx*m)):
                             block = blocks[y, zz*m+z, xx*m+x]
-
-                            if block == 0:
-                                continue
-
                             datum = data[y, zz*m+z, xx*m+x]
 
                             region.set_block(start_x + xx*m + x, start_y + y, start_z + zz*m + z, block)
